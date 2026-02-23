@@ -5,6 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PID_FILE="/tmp/codex-phone-bridge.pid"
 LOG_FILE="/tmp/codex-phone-bridge.log"
 PORT="${PORT:-8787}"
+HTTPS_ENABLED="${HTTPS_ENABLED:-0}"
+URL_SCHEME="http"
+if [[ "${HTTPS_ENABLED}" == "1" ]]; then
+  URL_SCHEME="https"
+fi
 
 if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "bridge already running on port ${PORT}"
@@ -32,7 +37,7 @@ echo "bridge started"
 echo "pid: ${PID}"
 echo "log: ${LOG_FILE}"
 if [[ -n "${LAN_IP}" ]]; then
-  echo "url: http://${LAN_IP}:${PORT}"
+  echo "url: ${URL_SCHEME}://${LAN_IP}:${PORT}"
 else
-  echo "url: http://127.0.0.1:${PORT}"
+  echo "url: ${URL_SCHEME}://127.0.0.1:${PORT}"
 fi

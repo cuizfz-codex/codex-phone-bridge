@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -23,6 +24,18 @@ const PUBLIC_DIR = path.join(WORKSPACE_ROOT, "public");
 
 const PORT = Number(process.env.PORT || 8787);
 const BIND_HOST = String(process.env.BIND_HOST || "0.0.0.0").trim() || "0.0.0.0";
+const HTTPS_ENABLED = normalizeBooleanFlag(process.env.HTTPS_ENABLED, false);
+const HTTPS_CERT_FILE = String(process.env.HTTPS_CERT_FILE || "").trim();
+const HTTPS_KEY_FILE = String(process.env.HTTPS_KEY_FILE || "").trim();
+const HTTPS_CA_FILE = String(process.env.HTTPS_CA_FILE || "").trim();
+const HTTPS_PASSPHRASE = String(process.env.HTTPS_PASSPHRASE || "");
+const HTTPS_REDIRECT_PORT = parseInteger(
+  process.env.HTTPS_REDIRECT_PORT,
+  0,
+  0,
+  65535
+);
+const SERVER_SCHEME = HTTPS_ENABLED ? "https" : "http";
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "";
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024 * 8);
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 120000);
@@ -119,6 +132,7 @@ let mediaService = null;
 let threadSync = null;
 let desktopNudge = null;
 let webTurnsCleanupTimer = null;
+let httpRedirectServer = null;
 
 const threadUsageById = new Map();
 const threadUsageFileCache = new Map();
@@ -364,7 +378,74 @@ function authorizeV2Request(req) {
   return { ok: false, status: 401, error: "Unauthorized" };
 }
 
-const server = http.createServer(async (req, res) => {
+function loadHttpsServerOptions() {
+  if (!HTTPS_ENABLED) return null;
+  if (!HTTPS_CERT_FILE || !HTTPS_KEY_FILE) {
+    throw new Error("HTTPS_ENABLED=1 requires HTTPS_CERT_FILE and HTTPS_KEY_FILE");
+  }
+
+  const certPath = path.resolve(HTTPS_CERT_FILE);
+  const keyPath = path.resolve(HTTPS_KEY_FILE);
+  if (!fs.existsSync(certPath)) {
+    throw new Error(`HTTPS cert file not found: ${certPath}`);
+  }
+  if (!fs.existsSync(keyPath)) {
+    throw new Error(`HTTPS key file not found: ${keyPath}`);
+  }
+
+  const options = {
+    cert: fs.readFileSync(certPath),
+    key: fs.readFileSync(keyPath),
+  };
+  if (HTTPS_CA_FILE) {
+    const caPath = path.resolve(HTTPS_CA_FILE);
+    if (!fs.existsSync(caPath)) {
+      throw new Error(`HTTPS CA file not found: ${caPath}`);
+    }
+    options.ca = fs.readFileSync(caPath);
+  }
+  if (HTTPS_PASSPHRASE) {
+    options.passphrase = HTTPS_PASSPHRASE;
+  }
+  return options;
+}
+
+function fallbackRedirectHost() {
+  if (BIND_HOST === "0.0.0.0" || BIND_HOST === "::") return "localhost";
+  if (BIND_HOST.includes(":") && !BIND_HOST.startsWith("[")) return `[${BIND_HOST}]`;
+  return BIND_HOST;
+}
+
+function normalizeRedirectAuthority(req) {
+  const rawHost = String((req && req.headers && req.headers.host) || "").trim();
+  if (!rawHost) {
+    return `${fallbackRedirectHost()}:${PORT}`;
+  }
+  const safe = rawHost.replace(/[^\w.\-:[\]]/g, "");
+  if (!safe) {
+    return `${fallbackRedirectHost()}:${PORT}`;
+  }
+  if (safe.startsWith("[")) {
+    const withoutPort = safe.replace(/\]:\d+$/, "]");
+    return `${withoutPort}:${PORT}`;
+  }
+  const withoutPort = safe.replace(/:\d+$/, "");
+  return `${withoutPort}:${PORT}`;
+}
+
+function buildHttpsRedirectLocation(req) {
+  const authority = normalizeRedirectAuthority(req);
+  const reqPath = String((req && req.url) || "/");
+  return `https://${authority}${reqPath.startsWith("/") ? reqPath : `/${reqPath}`}`;
+}
+
+async function handleBridgeRequest(req, res) {
+  if (HTTPS_ENABLED) {
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains"
+    );
+  }
   setCorsHeaders(res);
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -390,6 +471,14 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         now: new Date().toISOString(),
         service: "phone-codex-bridge",
+        transport: {
+          scheme: SERVER_SCHEME,
+          httpsEnabled: HTTPS_ENABLED,
+          redirectPort:
+            Number.isInteger(HTTPS_REDIRECT_PORT) && HTTPS_REDIRECT_PORT > 0
+              ? HTTPS_REDIRECT_PORT
+              : null,
+        },
         rpc: rpc.status(),
         sseClients: sseHub.count(),
         mediaRoot: MEDIA_ROOT,
@@ -511,12 +600,49 @@ const server = http.createServer(async (req, res) => {
     const message = error instanceof Error ? error.message : String(error);
     sendJson(res, 500, { ok: false, error: message });
   }
-});
+}
+
+const server = HTTPS_ENABLED
+  ? https.createServer(loadHttpsServerOptions(), handleBridgeRequest)
+  : http.createServer(handleBridgeRequest);
 
 server.on("error", (error) => {
-  console.error("[phone-codex-bridge] http server error:", error);
+  console.error(`[phone-codex-bridge] ${SERVER_SCHEME} server error:`, error);
   process.exit(1);
 });
+
+function startHttpRedirectServerIfNeeded() {
+  if (!HTTPS_ENABLED) return;
+  if (!Number.isInteger(HTTPS_REDIRECT_PORT) || HTTPS_REDIRECT_PORT <= 0) return;
+  if (HTTPS_REDIRECT_PORT === PORT) {
+    console.warn(
+      "[phone-codex-bridge] HTTPS_REDIRECT_PORT equals PORT; skip http->https redirect listener."
+    );
+    return;
+  }
+  if (httpRedirectServer) return;
+
+  httpRedirectServer = http.createServer((req, res) => {
+    const location = buildHttpsRedirectLocation(req);
+    res.writeHead(308, {
+      Location: location,
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      Connection: "close",
+    });
+    res.end(`Redirecting to ${location}\n`);
+  });
+
+  httpRedirectServer.on("error", (error) => {
+    console.error("[phone-codex-bridge] http redirect server error:", error);
+  });
+
+  httpRedirectServer.listen(HTTPS_REDIRECT_PORT, BIND_HOST, () => {
+    console.log(
+      `[phone-codex-bridge] http->https redirect on http://${BIND_HOST}:${HTTPS_REDIRECT_PORT} -> https://${BIND_HOST}:${PORT}`
+    );
+  });
+}
 
 async function handleV2Api(req, res, url, pathname) {
   if (req.method === "GET" && pathname === "/api/v2/events") {
@@ -1736,7 +1862,10 @@ async function bootstrap() {
   server.listen(PORT, BIND_HOST, () => {
     console.log(
       [
-        `[phone-codex-bridge] listening on http://${BIND_HOST}:${PORT}`,
+        `[phone-codex-bridge] listening on ${SERVER_SCHEME}://${BIND_HOST}:${PORT}`,
+        HTTPS_ENABLED
+          ? `[phone-codex-bridge] https cert: ${path.resolve(HTTPS_CERT_FILE)}`
+          : "[phone-codex-bridge] https disabled",
         `[phone-codex-bridge] codex app-server bin: ${CODEX_APP_SERVER_BIN}`,
         `[phone-codex-bridge] media root: ${MEDIA_ROOT}`,
         `[phone-codex-bridge] media index: ${MEDIA_INDEX}`,
@@ -1753,6 +1882,7 @@ async function bootstrap() {
           : `[phone-codex-bridge] simple login disabled (trusted-network mode)`,
       ].join("\n")
     );
+    startHttpRedirectServerIfNeeded();
   });
 }
 

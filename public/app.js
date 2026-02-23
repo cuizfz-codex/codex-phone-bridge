@@ -275,6 +275,7 @@ const I18N = {
     "prompt.renameThread": "输入新线程名",
     "voice.remove": "移除",
     "voice.notSupported": "当前浏览器不支持录音",
+    "voice.secureRequired": "当前页面不是安全上下文（需 HTTPS 或 localhost）",
     "voice.title": "语音: {id}...",
     "voice.transcriptPlaceholder": "可编辑转写文本",
     "voice.removeVoice": "移除语音",
@@ -461,6 +462,7 @@ const I18N = {
     "prompt.renameThread": "Enter new thread name",
     "voice.remove": "Remove",
     "voice.notSupported": "This browser does not support audio recording",
+    "voice.secureRequired": "Voice recording requires HTTPS (or localhost)",
     "voice.title": "Voice: {id}...",
     "voice.transcriptPlaceholder": "Editable transcript",
     "voice.removeVoice": "Remove voice",
@@ -547,6 +549,8 @@ const state = {
     lastError: "",
   },
   voice: {
+    supported: true,
+    supportReasonKey: "",
     recording: false,
     mediaRecorder: null,
     recognition: null,
@@ -577,6 +581,8 @@ function init() {
   initializeTheme();
   initializeRateLimitPolling();
   applyI18nToDom();
+  evaluateVoiceSupport();
+  updateVoiceButtonUi();
   updateLanguageToggleTarget();
   updateThemeToggleCurrent();
   renderQuotaUsage();
@@ -1054,11 +1060,7 @@ function applyLanguage(language, options = {}) {
   renderApprovals();
   renderPendingImages();
   renderPendingVoice();
-  if (elements.voiceBtn) {
-    elements.voiceBtn.textContent = state.voice.recording
-      ? t("btn.voiceStop")
-      : t("btn.voice");
-  }
+  updateVoiceButtonUi();
   renderContextUsage();
   renderQuotaUsage();
   if (state.lastStatusKey) {
@@ -1116,6 +1118,56 @@ function updateThemeToggleCurrent() {
   if (!elements.themeToggleCurrent) return;
   elements.themeToggleCurrent.textContent =
     state.theme === "dark" ? t("menu.themeDark") : t("menu.themeLight");
+}
+
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || "").trim().toLowerCase();
+  if (!host) return false;
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.endsWith(".localhost")
+  );
+}
+
+function evaluateVoiceSupport() {
+  const hasGetUserMedia = Boolean(
+    navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function"
+  );
+  const hasMediaRecorder = typeof window.MediaRecorder === "function";
+  const secureContext =
+    Boolean(window.isSecureContext) ||
+    isLoopbackHostname(window.location && window.location.hostname);
+  state.voice.supported = hasGetUserMedia && hasMediaRecorder && secureContext;
+  if (!hasGetUserMedia || !hasMediaRecorder) {
+    state.voice.supportReasonKey = "voice.notSupported";
+    return;
+  }
+  if (!secureContext) {
+    state.voice.supportReasonKey = "voice.secureRequired";
+    return;
+  }
+  state.voice.supportReasonKey = "";
+}
+
+function updateVoiceButtonUi() {
+  if (!elements.voiceBtn) return;
+  elements.voiceBtn.textContent = state.voice.recording
+    ? t("btn.voiceStop")
+    : t("btn.voice");
+  const disabled = !state.voice.supported;
+  elements.voiceBtn.disabled = disabled;
+  if (disabled) {
+    const reasonKey = state.voice.supportReasonKey || "voice.notSupported";
+    elements.voiceBtn.title = t(reasonKey);
+    elements.voiceBtn.setAttribute("aria-disabled", "true");
+  } else {
+    elements.voiceBtn.removeAttribute("title");
+    elements.voiceBtn.removeAttribute("aria-disabled");
+  }
 }
 
 function initializeTheme() {
@@ -3602,6 +3654,10 @@ async function toggleVoiceRecording() {
 }
 
 async function startVoiceRecording() {
+  evaluateVoiceSupport();
+  if (!state.voice.supported) {
+    throw new Error(t(state.voice.supportReasonKey || "voice.notSupported"));
+  }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     throw new Error(t("voice.notSupported"));
   }
@@ -3662,7 +3718,7 @@ async function startVoiceRecording() {
 
   recorder.start(250);
   state.voice.recording = true;
-  elements.voiceBtn.textContent = t("btn.voiceStop");
+  updateVoiceButtonUi();
   setStatusKey("status.recording");
   expandComposerMobile();
 }
@@ -3670,7 +3726,7 @@ async function startVoiceRecording() {
 async function stopVoiceRecording() {
   if (!state.voice.recording) return;
   state.voice.recording = false;
-  elements.voiceBtn.textContent = t("btn.voice");
+  updateVoiceButtonUi();
   if (state.voice.recognition) {
     try {
       state.voice.recognition.stop();
@@ -3698,7 +3754,7 @@ function cleanupVoiceState() {
   state.voice.chunks = [];
   state.voice.interimTranscript = "";
   state.voice.recording = false;
-  elements.voiceBtn.textContent = t("btn.voice");
+  updateVoiceButtonUi();
   scheduleComposerCollapse(180);
 }
 

@@ -432,6 +432,21 @@ select:focus-visible {
   filter: brightness(0.98);
 }
 
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.46;
+  cursor: not-allowed;
+  filter: none;
+  box-shadow: none;
+}
+
+.btn:disabled:hover,
+.btn:disabled:active,
+.btn[aria-disabled="true"]:hover,
+.btn[aria-disabled="true"]:active {
+  filter: none;
+}
+
 .main {
   padding: 12px;
   min-width: 0;

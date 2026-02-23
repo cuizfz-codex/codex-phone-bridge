@@ -4,6 +4,10 @@ node_modules
 data/media
 data/runtime/*.pid
 data/runtime/*.log
+data/runtime/*.crt
+data/runtime/*.key
+data/runtime/*.cnf
+data/runtime/tls/
 .tmp_inspect/
 .DS_Store
 tools/*.app

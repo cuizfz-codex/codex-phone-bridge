@@ -215,6 +215,10 @@ npm start
 常用环境变量：
 - `PORT=8787`
 - `BIND_HOST=0.0.0.0`（手机访问）或 `127.0.0.1`（仅本机）
+- `HTTPS_ENABLED=1`（建议开启；手机语音输入需要安全上下文）
+- `HTTPS_CERT_FILE=/path/to/cert.pem`
+- `HTTPS_KEY_FILE=/path/to/key.pem`
+- `HTTPS_REDIRECT_PORT=0`（可选，>0 时额外启用 http->https 跳转端口）
 - `ALLOWED_CLIENT_CIDRS=127.0.0.1/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7`
 - `REMOTE_MODE=tailscale|off`
 - `DEVICE_AUTH_MODE=strict|hybrid|off`（默认 strict）
