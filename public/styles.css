@@ -1356,7 +1356,7 @@ dialog::backdrop {
     height: 100%;
     align-self: stretch;
     margin: 0;
-    padding-right: 64px;
+    padding-right: 38px;
   }
 
   .mobile-compact-mode .composer-actions {
@@ -1368,21 +1368,21 @@ dialog::backdrop {
     flex-direction: column;
     justify-content: flex-end;
     align-items: center;
-    gap: 8px;
-    width: 44px;
-    min-width: 44px;
+    gap: 7px;
+    width: 28px;
+    min-width: 28px;
     height: 100%;
-    padding: 6px 4px 6px 0;
+    padding: 7px 2px 7px 0;
     pointer-events: none;
     z-index: 2;
   }
 
   .mobile-compact-mode .composer-actions .btn {
     pointer-events: auto;
-    width: 40px;
-    min-width: 40px;
-    min-height: 40px;
-    height: 40px;
+    width: 24px;
+    min-width: 24px;
+    min-height: 24px;
+    height: 24px;
     padding: 0;
     font-size: 0;
     line-height: 0;
