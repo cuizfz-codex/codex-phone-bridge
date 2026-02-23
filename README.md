@@ -216,6 +216,22 @@ phone-codex 支持“局域网 + Tailscale 外网访问”并行使用，默认�
 
 这样会清除 `CODEX_APP_SERVER_WS_URL` 绑定并停止代理，恢复普通启动路径。
 
+## 纯脚本启动与手机初始化（自动二维码）
+
+如果你不想先打开桌面控制面板，也可以直接双击：
+
+`Start-Phone-Codex.command`
+
+启动成功后，脚本会输出并自动打开：
+- `Local URL / Phone URL / Tailscale / MagicDNS`
+- `Setup URL`（带 `?base=...` 预配置参数）
+- `Setup QR`（二维码图片），手机相机扫码即可打开已预配置的网页端
+
+说明：
+- 同局域网优先使用 `Phone URL`（`Init LAN`）。
+- 外网优先使用 `MagicDNS`（`Init DNS`，需手机已连接 Tailscale）。
+- 若使用自签证书，手机可能需要先信任证书后才能正常进入页面。
+
 ## 开发与 CLI（Advanced）
 
 ### 运行 bridge（网页）CLI

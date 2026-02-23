@@ -7,6 +7,7 @@ All notable changes to `phone-codex` will be documented in this file.
 ### Added / Changed
 - Marked the HTTPS rollout as the canonical replacement for the prior HTTP-based launch path.
 - Updated startup defaults and docs to prefer/require HTTPS for web access and voice readiness.
+- `Start-Phone-Codex.command` now prints initialization URLs and generates a startup QR image for mobile bootstrap.
 - Web UI voice button now enters a disabled (grayed-out) state when recording is unavailable:
   - unsupported browser media APIs
   - non-secure context (requires HTTPS or localhost)
@@ -22,6 +23,7 @@ All notable changes to `phone-codex` will be documented in this file.
 ### 新增 / 变更
 - 正式将 HTTPS 方案确认为主方案，替代此前的 HTTP 启动路径。
 - 调整默认配置与文档，统一为 HTTPS 优先/必选，以满足网页端语音所需的安全上下文。
+- `Start-Phone-Codex.command` 现会在启动后输出初始化 URL，并生成可扫码的手机初始化二维码。
 - 网页端语音按钮新增灰化禁用逻辑：以下场景不可点击并提示原因：
   - 浏览器不支持录音 API
   - 页面非安全上下文（需 HTTPS 或 localhost）

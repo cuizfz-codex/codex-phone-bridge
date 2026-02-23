@@ -249,6 +249,18 @@ is_pid_running() {
   [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1
 }
 
+url_encode() {
+  local raw="$1"
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "${raw}"
+}
+
+build_setup_url_from_base() {
+  local base="$1"
+  local encoded_base
+  encoded_base="$(url_encode "${base}")"
+  printf "%s/?base=%s\n" "${base}" "${encoded_base}"
+}
+
 wait_for_health() {
   local retries=40
   local i
@@ -277,17 +289,92 @@ pick_open_url() {
   printf "%s\n" "${URL_SCHEME}://127.0.0.1:${PORT}"
 }
 
+pick_setup_url() {
+  local base
+  base="$(pick_open_url)"
+  build_setup_url_from_base "${base}"
+}
+
 print_urls() {
-  echo "Local URL : ${URL_SCHEME}://127.0.0.1:${PORT}"
+  local local_base="${URL_SCHEME}://127.0.0.1:${PORT}"
+  echo "Local URL : ${local_base}"
+  echo "Init URL  : $(build_setup_url_from_base "${local_base}")"
   if [[ -n "${LAN_IPV4}" ]]; then
-    echo "Phone URL : ${URL_SCHEME}://${LAN_IPV4}:${PORT}"
+    local lan_base="${URL_SCHEME}://${LAN_IPV4}:${PORT}"
+    echo "Phone URL : ${lan_base}"
+    echo "Init LAN  : $(build_setup_url_from_base "${lan_base}")"
   fi
   if [[ -n "${TAILSCALE_IPV4}" ]]; then
-    echo "Tailscale : ${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}"
+    local ts_ip_base="${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}"
+    echo "Tailscale : ${ts_ip_base}"
+    echo "Init TSIP : $(build_setup_url_from_base "${ts_ip_base}")"
   fi
   if [[ -n "${TAILSCALE_DNS}" ]]; then
-    echo "MagicDNS  : ${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
+    local ts_dns_base="${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
+    echo "MagicDNS  : ${ts_dns_base}"
+    echo "Init DNS  : $(build_setup_url_from_base "${ts_dns_base}")"
   fi
+}
+
+render_setup_qr_png() {
+  local url="$1"
+  local output_file="$2"
+
+  if command -v qrencode >/dev/null 2>&1; then
+    qrencode -o "${output_file}" -m 2 -s 8 "${url}" >/dev/null 2>&1 && return 0
+  fi
+
+  if ! command -v swift >/dev/null 2>&1; then
+    return 1
+  fi
+
+  swift - "${url}" "${output_file}" >/dev/null 2>&1 <<'SWIFT'
+import Foundation
+import CoreImage
+import AppKit
+
+let args = CommandLine.arguments
+guard args.count >= 3 else { exit(1) }
+let urlText = args[1]
+let outputPath = args[2]
+
+guard let data = urlText.data(using: .utf8) else { exit(2) }
+guard let filter = CIFilter(name: "CIQRCodeGenerator") else { exit(3) }
+filter.setValue(data, forKey: "inputMessage")
+filter.setValue("M", forKey: "inputCorrectionLevel")
+guard let ciImage = filter.outputImage else { exit(4) }
+
+let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+let rep = NSCIImageRep(ciImage: scaled)
+let image = NSImage(size: rep.size)
+image.addRepresentation(rep)
+
+guard let tiff = image.tiffRepresentation else { exit(5) }
+guard let bitmap = NSBitmapImageRep(data: tiff) else { exit(6) }
+guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(7) }
+
+do {
+  try png.write(to: URL(fileURLWithPath: outputPath))
+} catch {
+  exit(8)
+}
+SWIFT
+}
+
+show_mobile_bootstrap() {
+  local setup_url
+  setup_url="$(pick_setup_url)"
+  local qr_file="${RUNTIME_DIR}/phone-codex-mobile-setup-qr.png"
+
+  echo "Setup URL : ${setup_url}"
+  if render_setup_qr_png "${setup_url}" "${qr_file}"; then
+    echo "Setup QR  : ${qr_file}"
+    open "${qr_file}" >/dev/null 2>&1 || true
+  else
+    echo "Setup QR  : unavailable (install qrencode or Xcode Command Line Tools)"
+  fi
+
+  open "${setup_url}" >/dev/null 2>&1 || true
 }
 
 if [[ -f "${PID_FILE}" ]]; then
@@ -296,7 +383,7 @@ if [[ -f "${PID_FILE}" ]]; then
     echo "phone-codex is already running (PID ${OLD_PID})."
     print_urls
     echo "Log file : ${LOG_FILE}"
-    open "$(pick_open_url)" >/dev/null 2>&1 || true
+    show_mobile_bootstrap
     read -r -p "Press Enter to close..."
     exit 0
   fi
@@ -377,5 +464,5 @@ echo "phone-codex started successfully (PID ${NEW_PID})."
 print_urls
 echo "Log file : ${LOG_FILE}"
 
-open "$(pick_open_url)" >/dev/null 2>&1 || true
+show_mobile_bootstrap
 read -r -p "Press Enter to close..."
