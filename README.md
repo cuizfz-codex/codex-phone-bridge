@@ -10,19 +10,45 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 
 这样新线程会先读取修改历史和交接重点，避免重复排查。
 
-## 更新说明 / Release Notes (v0.3.6)
+## 更新说明 / Release Notes (v0.3.7)
 
 ### 中文
 
-- 本版本已正式替代旧版 HTTP 方案，发布与推荐路径统一为 HTTPS。
-- `Start-Phone-Codex.command` 强制 HTTPS，并自动准备 TLS 证书（优先 Tailscale 证书，失败回退自签）。
-- 网页端输入区精简为“文本 + 图片”，已移除语音录制/上传入口与流程。
+- 本版本继续沿用 HTTPS 主方案（替代旧 HTTP 路径）。
+- 网页端输入能力为“文本 + 图片”，语音录制/上传已移除。
+- 手机网页发送区升级为图标化操作（图片/发送），并优化为紧凑布局。
+- 左侧栏布局已压缩：`新建 Thread + 刷新` 同行；`语言 + 主题` 同行展示。
+- 文档补充了中英文“最新使用说明”，并清理了仓库中的个人信息暴露风险项。
 
 ### English
 
-- This release replaces the old HTTP approach and standardizes the recommended path on HTTPS.
-- `Start-Phone-Codex.command` now enforces HTTPS and auto-provisions TLS material (prefers Tailscale cert, then self-signed fallback).
-- The web composer now supports text + image only; voice recording/upload has been removed.
+- This release continues with HTTPS as the default (replacing the legacy HTTP path).
+- The web composer supports text + image only; voice recording/upload has been removed.
+- Mobile web composer controls are icon-based (image/send) with a compact layout.
+- Sidebar layout is tightened: `New Thread + Refresh` are inline, and `Language + Theme` are shown side-by-side.
+- Updated bilingual usage docs are included, and privacy-exposed strings were sanitized.
+
+## 最新版本使用说明 / Latest Usage Guide
+
+### 中文
+
+1. 在仓库根目录双击运行 `Start-Phone-Codex.command`。  
+2. 终端出现 `Phone URL` 或 `Setup URL` 后，用手机打开对应地址（优先扫码）。  
+3. 手机网页侧栏中：  
+   - `新建 Thread` 与 `刷新` 在同一行；  
+   - `语言` 与 `主题` 开关在同一行。  
+4. 发送区使用图标按钮：上方图片、下方发送；支持文本 + 图片发送。  
+5. 若网页未更新，手机端请强制刷新（建议清缓存后刷新）。
+
+### English
+
+1. From the repository root, run `Start-Phone-Codex.command`.  
+2. When terminal prints `Phone URL` or `Setup URL`, open it on your phone (QR is preferred).  
+3. In the mobile sidebar:  
+   - `New Thread` and `Refresh` are inline;  
+   - `Language` and `Theme` are side-by-side.  
+4. Composer uses icon controls (image on top, send below) and supports text + image.  
+5. If UI changes do not appear, force-refresh on phone (clear cache first).
 
 ## 历史版本 / Previous (v0.3.5)
 

@@ -2,6 +2,30 @@
 
 All notable changes to `phone-codex` will be documented in this file.
 
+## v0.3.7 - 2026-02-23
+
+### Added / Changed
+- Mobile web composer controls were refined to icon-based interactions and tuned for compact spacing.
+- Sidebar layout was compacted:
+  - `New Thread` and `Refresh` now sit on one row.
+  - `Language` and `Theme` switches are now shown side-by-side.
+- Added refreshed bilingual usage guidance in `README.md`.
+- Sanitized privacy-sensitive text patterns in tracked docs/metadata to avoid personal info leakage.
+
+---
+
+## v0.3.7 - 2026-02-23（中文）
+
+### 新增 / 变更
+- 手机网页发送区调整为图标交互，并优化为更紧凑的布局。
+- 侧栏布局压缩：
+  - `新建 Thread` 与 `刷新` 合并到同一行。
+  - `语言` 与 `主题` 开关改为同排展示。
+- 在 `README.md` 中补充了最新中英文使用说明。
+- 对已跟踪文档/元数据中的隐私敏感文本进行了去标识化处理，降低个人信息暴露风险。
+
+---
+
 ## v0.3.6 - 2026-02-23
 
 ### Added / Changed
