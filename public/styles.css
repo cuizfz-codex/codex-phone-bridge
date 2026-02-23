@@ -1356,58 +1356,53 @@ dialog::backdrop {
     height: 100%;
     align-self: stretch;
     margin: 0;
-    padding-right: 56px;
+    padding-right: 96px;
   }
 
   .mobile-compact-mode .composer-actions {
     grid-area: input;
     justify-self: end;
-    align-self: stretch;
+    align-self: end;
     margin: 0;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     justify-content: flex-end;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
     width: auto;
     min-width: 0;
-    height: 100%;
-    padding: 6px 4px 6px 0;
+    height: auto;
+    padding: 0 4px 8px 0;
     pointer-events: none;
     z-index: 2;
   }
 
   .mobile-compact-mode .composer-actions .btn {
     pointer-events: auto;
-    padding: 0;
-    font-size: 0;
-    line-height: 0;
-  }
-
-  .mobile-compact-mode #pick-image-btn {
     width: 40px;
     min-width: 40px;
     min-height: 40px;
     height: 40px;
-    border-radius: 11px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
   }
 
-  .mobile-compact-mode #pick-image-btn::before {
-    width: 21px;
-    height: 21px;
+  .mobile-compact-mode .composer-actions .btn::before {
+    width: 24px;
+    height: 24px;
+  }
+
+  .mobile-compact-mode #pick-image-btn {
+    color: var(--muted);
   }
 
   .mobile-compact-mode #send-btn {
-    width: 48px;
-    min-width: 48px;
-    min-height: 48px;
-    height: 48px;
-    border-radius: 999px;
-    box-shadow: 0 6px 16px color-mix(in srgb, var(--brand-2) 35%, transparent);
-  }
-
-  .mobile-compact-mode #send-btn::before {
-    width: 24px;
-    height: 24px;
+    color: var(--brand-2);
   }
 
   .mobile-compact-mode .attachments {
