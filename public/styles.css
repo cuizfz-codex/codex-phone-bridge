@@ -1333,6 +1333,20 @@ dialog::backdrop {
     grid-area: actions;
     margin: 0;
     align-self: stretch;
+    display: grid;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    width: 68px;
+    min-width: 68px;
+    height: 100%;
+  }
+
+  .mobile-compact-mode .composer-actions .btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    padding: 0 6px;
   }
 
   .mobile-compact-mode .attachments {
