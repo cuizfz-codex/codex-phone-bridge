@@ -255,11 +255,16 @@ url_encode() {
   node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "${raw}"
 }
 
-build_setup_url_from_base() {
+build_init_url_from_base() {
   local base="$1"
   local encoded_base
   encoded_base="$(url_encode "${base}")"
   printf "%s/?base=%s\n" "${base}" "${encoded_base}"
+}
+
+build_setup_url_from_base() {
+  local base="$1"
+  printf "%s/\n" "${base}"
 }
 
 ensure_qrcode_module() {
@@ -310,21 +315,25 @@ pick_setup_url() {
 print_urls() {
   local local_base="${URL_SCHEME}://127.0.0.1:${PORT}"
   echo "Local URL : ${local_base}"
-  echo "Init URL  : $(build_setup_url_from_base "${local_base}")"
+  echo "Init URL  : $(build_init_url_from_base "${local_base}")"
+  echo "Quick URL : $(build_setup_url_from_base "${local_base}")"
   if [[ -n "${LAN_IPV4}" ]]; then
     local lan_base="${URL_SCHEME}://${LAN_IPV4}:${PORT}"
     echo "Phone URL : ${lan_base}"
-    echo "Init LAN  : $(build_setup_url_from_base "${lan_base}")"
+    echo "Init LAN  : $(build_init_url_from_base "${lan_base}")"
+    echo "Quick LAN : $(build_setup_url_from_base "${lan_base}")"
   fi
   if [[ -n "${TAILSCALE_IPV4}" ]]; then
     local ts_ip_base="${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}"
     echo "Tailscale : ${ts_ip_base}"
-    echo "Init TSIP : $(build_setup_url_from_base "${ts_ip_base}")"
+    echo "Init TSIP : $(build_init_url_from_base "${ts_ip_base}")"
+    echo "Quick TSIP: $(build_setup_url_from_base "${ts_ip_base}")"
   fi
   if [[ -n "${TAILSCALE_DNS}" ]]; then
     local ts_dns_base="${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
     echo "MagicDNS  : ${ts_dns_base}"
-    echo "Init DNS  : $(build_setup_url_from_base "${ts_dns_base}")"
+    echo "Init DNS  : $(build_init_url_from_base "${ts_dns_base}")"
+    echo "Quick DNS : $(build_setup_url_from_base "${ts_dns_base}")"
   fi
 }
 
@@ -340,16 +349,17 @@ const outputPath = String(process.argv[3] || "");
 
 async function run() {
   const terminal = await QRCode.toString(text, {
-    type: "utf8",
-    errorCorrectionLevel: "M",
+    type: "terminal",
+    small: false,
+    errorCorrectionLevel: "H",
   });
   process.stdout.write(terminal + "\n");
   if (outputPath) {
     await QRCode.toFile(outputPath, text, {
       type: "png",
-      margin: 1,
-      scale: 8,
-      errorCorrectionLevel: "M",
+      margin: 4,
+      scale: 12,
+      errorCorrectionLevel: "H",
     });
   }
 }
