@@ -9,11 +9,6 @@ const MIME_TO_EXT = {
   "image/webp": ".webp",
   "image/gif": ".gif",
   "image/heic": ".heic",
-  "audio/webm": ".webm",
-  "audio/mp4": ".m4a",
-  "audio/mpeg": ".mp3",
-  "audio/wav": ".wav",
-  "audio/ogg": ".ogg",
 };
 
 class MediaService {
@@ -21,7 +16,6 @@ class MediaService {
     this.mediaRoot = path.resolve(options.mediaRoot);
     this.indexPath = path.resolve(options.indexPath);
     this.maxImageBytes = Number(options.maxImageBytes || 12 * 1024 * 1024);
-    this.maxVoiceBytes = Number(options.maxVoiceBytes || 25 * 1024 * 1024);
     this._index = {
       version: 1,
       items: [],
@@ -117,10 +111,6 @@ class MediaService {
 
   async saveImage(payload) {
     return this._saveFromDataUrl("image", payload, this.maxImageBytes);
-  }
-
-  async saveVoice(payload) {
-    return this._saveFromDataUrl("voice", payload, this.maxVoiceBytes);
   }
 
   async _saveFromDataUrl(kind, payload, sizeLimit) {
@@ -225,7 +215,6 @@ class MediaService {
     if (ext && ext.length <= 10) return ext;
 
     if (safeMime.startsWith("image/")) return ".img";
-    if (safeMime.startsWith("audio/")) return ".audio";
     return ".bin";
   }
 
@@ -239,4 +228,3 @@ class MediaService {
 module.exports = {
   MediaService,
 };
-

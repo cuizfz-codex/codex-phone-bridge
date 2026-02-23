@@ -73,9 +73,7 @@ const elements = {
   sendBtn: document.querySelector("#send-btn"),
   imagePicker: document.querySelector("#image-picker"),
   pickImageBtn: document.querySelector("#pick-image-btn"),
-  voiceBtn: document.querySelector("#voice-btn"),
   pendingImages: document.querySelector("#pending-images"),
-  pendingVoice: document.querySelector("#pending-voice"),
 };
 
 const storageKeys = {
@@ -122,9 +120,6 @@ const I18N = {
     "btn.hideComposer": "收起输入",
     "btn.goPairing": "去配对",
     "btn.image": "图片",
-    "btn.voice": "语音",
-    "btn.voiceStop": "停止",
-    "btn.voiceProcessing": "处理中",
     "btn.send": "发送",
     "btn.cancel": "取消",
     "btn.save": "保存",
@@ -134,7 +129,7 @@ const I18N = {
     "btn.scanFromPhoto": "从照片识别",
     "btn.stopScan": "停止扫码",
     "input.searchThreads": "搜索 thread 关键词...",
-    "input.message": "输入消息，支持文本 + 图片 + 语音转写",
+    "input.message": "输入消息，支持文本 + 图片",
     "label.source": "来源",
     "label.includeArchived": "包含归档",
     "label.desktopCompatible": "桌面一致视图（隐藏过程更新）",
@@ -225,7 +220,6 @@ const I18N = {
     "status.unarchiveFailed": "取消归档失败: {error}",
     "status.forkFailed": "Fork 失败: {error}",
     "status.imageUploadFailed": "图片上传失败: {error}",
-    "status.voiceFailed": "语音失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
     "status.sseConnected": "已连接（SSE）",
@@ -241,12 +235,6 @@ const I18N = {
     "status.sending": "发送中...",
     "status.sentTurn": "已发送到线程 {id}... · 回合 {turnId}",
     "status.sentThread": "已发送到线程 {id}...",
-    "status.voiceUploadFailed": "语音上传失败: {error}",
-    "status.voiceProcessing": "正在处理录音...",
-    "status.voiceEmpty": "未录到有效声音，请重试",
-    "status.recordingProgress": "录音中... {text}",
-    "status.recording": "录音中...",
-    "status.voiceSaved": "语音已保存并待发送",
     "thread.lockBanner":
       "当前仅显示锁定线程 {id}...；点击下方可恢复全部 project。",
     "thread.emptyList": "没有可显示的线程。",
@@ -276,13 +264,7 @@ const I18N = {
     "approval.decline": "拒绝",
     "approval.cancel": "取消",
     "prompt.renameThread": "输入新线程名",
-    "voice.remove": "移除",
-    "voice.notSupported": "当前浏览器不支持录音",
-    "voice.secureRequired": "当前页面不是安全上下文（需 HTTPS 或 localhost）",
-    "voice.processing": "正在处理上一段录音，请稍候",
-    "voice.title": "语音: {id}...",
-    "voice.transcriptPlaceholder": "可编辑转写文本",
-    "voice.removeVoice": "移除语音",
+    "attachment.remove": "移除",
     "context.title": "上下文窗口使用率",
     "context.noWindow": "上下文窗口大小不可用",
     "context.tooltip":
@@ -296,7 +278,6 @@ const I18N = {
     "error.cannotDetermineThread": "无法确定 thread id",
     "error.deviceNotPaired": "当前设备未配对",
     "error.fileReader": "读取文件失败",
-    "error.blobReader": "读取音频失败",
   },
   en: {
     "page.title": "Codex Mobile Threads",
@@ -311,9 +292,6 @@ const I18N = {
     "btn.hideComposer": "Collapse composer",
     "btn.goPairing": "Pair Now",
     "btn.image": "Image",
-    "btn.voice": "Voice",
-    "btn.voiceStop": "Stop",
-    "btn.voiceProcessing": "Processing",
     "btn.send": "Send",
     "btn.cancel": "Cancel",
     "btn.save": "Save",
@@ -323,7 +301,7 @@ const I18N = {
     "btn.scanFromPhoto": "Scan from Photo",
     "btn.stopScan": "Stop Scan",
     "input.searchThreads": "Search thread keywords...",
-    "input.message": "Type a message, supports text + image + voice transcript",
+    "input.message": "Type a message, supports text + image",
     "label.source": "Source",
     "label.includeArchived": "Include archived",
     "label.desktopCompatible": "Desktop-compatible view (hide intermediate updates)",
@@ -416,7 +394,6 @@ const I18N = {
     "status.unarchiveFailed": "Unarchive failed: {error}",
     "status.forkFailed": "Fork failed: {error}",
     "status.imageUploadFailed": "Image upload failed: {error}",
-    "status.voiceFailed": "Voice failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
     "status.sseConnected": "Connected (SSE)",
@@ -432,12 +409,6 @@ const I18N = {
     "status.sending": "Sending...",
     "status.sentTurn": "Sent to thread {id}... · turn {turnId}",
     "status.sentThread": "Sent to thread {id}...",
-    "status.voiceUploadFailed": "Voice upload failed: {error}",
-    "status.voiceProcessing": "Processing voice recording...",
-    "status.voiceEmpty": "No valid audio captured. Please try again.",
-    "status.recordingProgress": "Recording... {text}",
-    "status.recording": "Recording...",
-    "status.voiceSaved": "Voice saved and queued",
     "thread.lockBanner":
       "Only locked thread {id}... is shown. Use the button below to restore all projects.",
     "thread.emptyList": "No threads to display.",
@@ -467,13 +438,7 @@ const I18N = {
     "approval.decline": "Decline",
     "approval.cancel": "Cancel",
     "prompt.renameThread": "Enter new thread name",
-    "voice.remove": "Remove",
-    "voice.notSupported": "This browser does not support audio recording",
-    "voice.secureRequired": "Voice recording requires HTTPS (or localhost)",
-    "voice.processing": "Processing previous recording. Please wait.",
-    "voice.title": "Voice: {id}...",
-    "voice.transcriptPlaceholder": "Editable transcript",
-    "voice.removeVoice": "Remove voice",
+    "attachment.remove": "Remove",
     "context.title": "Context window usage",
     "context.noWindow": "Context window size unavailable",
     "context.tooltip":
@@ -487,7 +452,6 @@ const I18N = {
     "error.cannotDetermineThread": "Cannot determine thread id",
     "error.deviceNotPaired": "Device not paired",
     "error.fileReader": "FileReader failed",
-    "error.blobReader": "Blob reader failed",
   },
 };
 
@@ -511,7 +475,6 @@ const state = {
   threadUsageById: new Map(),
   pendingApprovals: [],
   pendingImages: [],
-  pendingVoice: null,
   eventSource: null,
   listPollTimer: null,
   threadPollTimer: null,
@@ -556,20 +519,6 @@ const state = {
     pollTimer: null,
     lastError: "",
   },
-  voice: {
-    supported: true,
-    supportReasonKey: "",
-    recording: false,
-    uploading: false,
-    uploadPromise: null,
-    stopPromise: null,
-    mediaRecorder: null,
-    recognition: null,
-    stream: null,
-    chunks: [],
-    finalTranscript: "",
-    interimTranscript: "",
-  },
   auth: {
     checked: false,
     authenticated: false,
@@ -592,8 +541,6 @@ function init() {
   initializeTheme();
   initializeRateLimitPolling();
   applyI18nToDom();
-  evaluateVoiceSupport();
-  updateVoiceButtonUi();
   updateLanguageToggleTarget();
   updateThemeToggleCurrent();
   renderQuotaUsage();
@@ -862,9 +809,6 @@ function hasComposerWorkingContent() {
   return (
     hasText ||
     state.pendingImages.length > 0 ||
-    Boolean(state.pendingVoice) ||
-    Boolean(state.voice && state.voice.recording) ||
-    Boolean(state.voice && state.voice.uploading) ||
     Boolean(state.sending)
   );
 }
@@ -1071,8 +1015,6 @@ function applyLanguage(language, options = {}) {
   renderCurrentThread();
   renderApprovals();
   renderPendingImages();
-  renderPendingVoice();
-  updateVoiceButtonUi();
   renderContextUsage();
   renderQuotaUsage();
   if (state.lastStatusKey) {
@@ -1130,62 +1072,6 @@ function updateThemeToggleCurrent() {
   if (!elements.themeToggleCurrent) return;
   elements.themeToggleCurrent.textContent =
     state.theme === "dark" ? t("menu.themeDark") : t("menu.themeLight");
-}
-
-function isLoopbackHostname(hostname) {
-  const host = String(hostname || "").trim().toLowerCase();
-  if (!host) return false;
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "[::1]" ||
-    host.endsWith(".localhost")
-  );
-}
-
-function evaluateVoiceSupport() {
-  const hasGetUserMedia = Boolean(
-    navigator.mediaDevices &&
-      typeof navigator.mediaDevices.getUserMedia === "function"
-  );
-  const hasMediaRecorder = typeof window.MediaRecorder === "function";
-  const secureContext =
-    Boolean(window.isSecureContext) ||
-    isLoopbackHostname(window.location && window.location.hostname);
-  state.voice.supported = hasGetUserMedia && hasMediaRecorder && secureContext;
-  if (!hasGetUserMedia || !hasMediaRecorder) {
-    state.voice.supportReasonKey = "voice.notSupported";
-    return;
-  }
-  if (!secureContext) {
-    state.voice.supportReasonKey = "voice.secureRequired";
-    return;
-  }
-  state.voice.supportReasonKey = "";
-}
-
-function updateVoiceButtonUi() {
-  if (!elements.voiceBtn) return;
-  if (state.voice.uploading) {
-    elements.voiceBtn.textContent = t("btn.voiceProcessing");
-  } else {
-    elements.voiceBtn.textContent = state.voice.recording
-      ? t("btn.voiceStop")
-      : t("btn.voice");
-  }
-  const disabled = !state.voice.supported || state.voice.uploading;
-  elements.voiceBtn.disabled = disabled;
-  if (disabled) {
-    const reasonKey = state.voice.uploading
-      ? "voice.processing"
-      : state.voice.supportReasonKey || "voice.notSupported";
-    elements.voiceBtn.title = t(reasonKey);
-    elements.voiceBtn.setAttribute("aria-disabled", "true");
-  } else {
-    elements.voiceBtn.removeAttribute("title");
-    elements.voiceBtn.removeAttribute("aria-disabled");
-  }
 }
 
 function initializeTheme() {
@@ -1726,12 +1612,6 @@ function bindEvents() {
     });
   });
 
-  elements.voiceBtn.addEventListener("click", () => {
-    toggleVoiceRecording().catch((error) => {
-      setStatusKey("status.voiceFailed", { error: asMessage(error) });
-    });
-  });
-
   elements.pendingImages.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -1739,21 +1619,6 @@ function bindEvents() {
     if (!mediaId) return;
     state.pendingImages = state.pendingImages.filter((item) => item.mediaId !== mediaId);
     renderPendingImages();
-  });
-
-  elements.pendingVoice.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (target.dataset.action === "clear-voice") {
-      state.pendingVoice = null;
-      renderPendingVoice();
-    }
-  });
-  elements.pendingVoice.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLTextAreaElement)) return;
-    if (!state.pendingVoice) return;
-    state.pendingVoice.transcript = target.value;
   });
 
   elements.approvalList.addEventListener("click", (event) => {
@@ -3533,29 +3398,16 @@ async function sendCurrentMessage() {
     throw new Error(t("error.cannotDetermineThread"));
   }
 
-  if (state.voice.recording) {
-    await stopVoiceRecording();
-  }
-  if (state.voice.uploadPromise) {
-    setStatusKey("status.voiceProcessing");
-    await state.voice.uploadPromise.catch(() => {
-      // Upload error is already surfaced in stop handler.
-    });
-  }
-
   const text = elements.input.value.trim();
   const hasText = Boolean(text);
   const hasImages = state.pendingImages.length > 0;
-  const hasVoice = Boolean(state.pendingVoice);
-  if (!hasText && !hasImages && !hasVoice) {
+  if (!hasText && !hasImages) {
     return;
   }
 
   const payload = {
     text,
     imageMediaIds: state.pendingImages.map((item) => item.mediaId),
-    voiceMediaId: state.pendingVoice ? state.pendingVoice.mediaId : null,
-    voiceTranscript: state.pendingVoice ? state.pendingVoice.transcript : "",
   };
 
   state.sending = true;
@@ -3601,15 +3453,12 @@ async function sendCurrentMessage() {
 
 function clearPendingAttachments() {
   state.pendingImages = [];
-  state.pendingVoice = null;
   renderPendingImages();
-  renderPendingVoice();
 }
 
 function syncAttachmentsVisibility() {
   if (!elements.attachments) return;
-  const hasAttachments =
-    state.pendingImages.length > 0 || Boolean(state.pendingVoice);
+  const hasAttachments = state.pendingImages.length > 0;
   elements.attachments.classList.toggle("hidden", !hasAttachments);
   if (hasAttachments) {
     expandComposerMobile();
@@ -3665,251 +3514,11 @@ function renderPendingImages() {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "btn mini ghost";
-    remove.textContent = t("voice.remove");
+    remove.textContent = t("attachment.remove");
     remove.dataset.removeMediaId = item.mediaId;
     card.append(img, meta, remove);
     elements.pendingImages.append(card);
   }
-  syncAttachmentsVisibility();
-}
-
-async function toggleVoiceRecording() {
-  if (state.voice.recording) {
-    await stopVoiceRecording();
-  } else {
-    await startVoiceRecording();
-  }
-}
-
-async function startVoiceRecording() {
-  if (state.voice.uploading || state.voice.uploadPromise) {
-    throw new Error(t("voice.processing"));
-  }
-  evaluateVoiceSupport();
-  if (!state.voice.supported) {
-    throw new Error(t(state.voice.supportReasonKey || "voice.notSupported"));
-  }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error(t("voice.notSupported"));
-  }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const preferredMimeType = pickPreferredVoiceMimeType();
-  const recorder = preferredMimeType
-    ? new MediaRecorder(stream, { mimeType: preferredMimeType })
-    : new MediaRecorder(stream);
-  const recordedChunks = [];
-  let resolveStopPromise = null;
-  state.voice.stopPromise = new Promise((resolve) => {
-    resolveStopPromise = resolve;
-  });
-  state.voice.stream = stream;
-  state.voice.mediaRecorder = recorder;
-  state.voice.chunks = recordedChunks;
-  state.voice.finalTranscript = "";
-  state.voice.interimTranscript = "";
-
-  recorder.addEventListener("dataavailable", (event) => {
-    if (event.data && event.data.size > 0) {
-      recordedChunks.push(event.data);
-    }
-  });
-  recorder.addEventListener("stop", async () => {
-    const blob = new Blob(recordedChunks, {
-      type: recorder.mimeType || preferredMimeType || "audio/webm",
-    });
-    if (blob.size <= 0) {
-      setStatusKey("status.voiceEmpty");
-      cleanupVoiceState();
-      if (resolveStopPromise) resolveStopPromise();
-      state.voice.stopPromise = null;
-      return;
-    }
-    state.voice.uploading = true;
-    updateVoiceButtonUi();
-    setStatusKey("status.voiceProcessing");
-    const uploadPromise = uploadVoiceBlob(blob, state.voice.finalTranscript.trim());
-    state.voice.uploadPromise = uploadPromise;
-    try {
-      await uploadPromise;
-    } catch (error) {
-      setStatusKey("status.voiceUploadFailed", { error: asMessage(error) });
-    } finally {
-      state.voice.uploadPromise = null;
-      state.voice.uploading = false;
-      cleanupVoiceState();
-      if (resolveStopPromise) resolveStopPromise();
-      state.voice.stopPromise = null;
-    }
-  });
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.lang = state.language === "en" ? "en-US" : "zh-CN";
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.addEventListener("result", (event) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        const transcript = result[0] ? result[0].transcript : "";
-        if (result.isFinal) finalText += transcript;
-        else interimText += transcript;
-      }
-      if (finalText) state.voice.finalTranscript += finalText;
-      state.voice.interimTranscript = interimText;
-      setStatusKey("status.recordingProgress", {
-        text: `${state.voice.finalTranscript}${state.voice.interimTranscript}`,
-      });
-    });
-    recognition.addEventListener("error", () => {
-      // 语音识别失败不阻断录音。
-    });
-    state.voice.recognition = recognition;
-    recognition.start();
-  }
-
-  recorder.start(250);
-  state.voice.recording = true;
-  updateVoiceButtonUi();
-  setStatusKey("status.recording");
-  expandComposerMobile();
-}
-
-async function stopVoiceRecording() {
-  if (!state.voice.recording) {
-    if (state.voice.uploadPromise) {
-      await state.voice.uploadPromise.catch(() => {
-        // Upload error already shown elsewhere.
-      });
-    }
-    return;
-  }
-  state.voice.recording = false;
-  updateVoiceButtonUi();
-  if (state.voice.recognition) {
-    try {
-      state.voice.recognition.stop();
-    } catch (_error) {
-      // noop
-    }
-  }
-  if (state.voice.mediaRecorder && state.voice.mediaRecorder.state !== "inactive") {
-    if (typeof state.voice.mediaRecorder.requestData === "function") {
-      try {
-        state.voice.mediaRecorder.requestData();
-      } catch (_error) {
-        // noop
-      }
-    }
-    state.voice.mediaRecorder.stop();
-    const stopPromise = state.voice.stopPromise;
-    if (stopPromise) {
-      await stopPromise.catch(() => {
-        // noop
-      });
-    }
-  } else {
-    cleanupVoiceState();
-  }
-}
-
-function cleanupVoiceState() {
-  if (state.voice.stream) {
-    for (const track of state.voice.stream.getTracks()) {
-      track.stop();
-    }
-  }
-  state.voice.mediaRecorder = null;
-  state.voice.recognition = null;
-  state.voice.stream = null;
-  state.voice.chunks = [];
-  state.voice.interimTranscript = "";
-  state.voice.recording = false;
-  state.voice.stopPromise = null;
-  updateVoiceButtonUi();
-  scheduleComposerCollapse(180);
-}
-
-async function uploadVoiceBlob(blob, transcript) {
-  const dataUrl = await readBlobAsDataUrl(blob);
-  const resp = await apiFetchJson("/api/v2/media/voice", {
-    method: "POST",
-    body: {
-      dataUrl,
-      fileName: `voice-${Date.now()}${voiceFileExtByMime(blob.type)}`,
-      mimeType: blob.type || "audio/webm",
-      metadata: {
-        transcriptPreview: transcript.slice(0, 256),
-      },
-    },
-  });
-  state.pendingVoice = {
-    mediaId: resp.mediaId,
-    filePath: resp.filePath,
-    mimeType: resp.mimeType,
-    transcript,
-  };
-  renderPendingVoice();
-  setStatusKey("status.voiceSaved");
-}
-
-function pickPreferredVoiceMimeType() {
-  if (
-    typeof window.MediaRecorder !== "function" ||
-    typeof window.MediaRecorder.isTypeSupported !== "function"
-  ) {
-    return "";
-  }
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-  ];
-  for (const mime of candidates) {
-    if (window.MediaRecorder.isTypeSupported(mime)) {
-      return mime;
-    }
-  }
-  return "";
-}
-
-function voiceFileExtByMime(mimeType) {
-  const mime = String(mimeType || "").toLowerCase();
-  if (mime.includes("webm")) return ".webm";
-  if (mime.includes("mp4")) return ".m4a";
-  if (mime.includes("ogg")) return ".ogg";
-  if (mime.includes("mpeg") || mime.includes("mp3")) return ".mp3";
-  if (mime.includes("wav")) return ".wav";
-  return ".audio";
-}
-
-function renderPendingVoice() {
-  elements.pendingVoice.innerHTML = "";
-  if (!state.pendingVoice) {
-    syncAttachmentsVisibility();
-    return;
-  }
-  const card = document.createElement("article");
-  card.className = "pending-card voice";
-  const title = document.createElement("strong");
-  title.textContent = t("voice.title", {
-    id: state.pendingVoice.mediaId.slice(0, 8),
-  });
-  const transcript = document.createElement("textarea");
-  transcript.rows = 2;
-  transcript.placeholder = t("voice.transcriptPlaceholder");
-  transcript.value = state.pendingVoice.transcript || "";
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "btn mini ghost";
-  remove.textContent = t("voice.removeVoice");
-  remove.dataset.action = "clear-voice";
-  card.append(title, transcript, remove);
-  elements.pendingVoice.append(card);
   syncAttachmentsVisibility();
 }
 
@@ -4387,15 +3996,6 @@ function readFileAsDataUrl(file) {
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error(t("error.fileReader")));
     reader.readAsDataURL(file);
-  });
-}
-
-function readBlobAsDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error(t("error.blobReader")));
-    reader.readAsDataURL(blob);
   });
 }
 

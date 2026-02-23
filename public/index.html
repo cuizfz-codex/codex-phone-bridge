@@ -158,15 +158,13 @@
 
         <form id="composer" class="composer">
           <button id="composer-toggle" class="composer-toggle" type="button" aria-label="展开输入" aria-expanded="false">⌃</button>
-          <textarea id="message-input" rows="3" placeholder="输入消息，支持文本 + 图片 + 语音转写" data-i18n-placeholder="input.message"></textarea>
+          <textarea id="message-input" rows="3" placeholder="输入消息，支持文本 + 图片" data-i18n-placeholder="input.message"></textarea>
           <section id="attachments" class="attachments hidden">
             <div id="pending-images" class="pending-images"></div>
-            <div id="pending-voice" class="pending-voice"></div>
           </section>
           <div class="composer-actions">
             <input id="image-picker" type="file" accept="image/*" multiple hidden />
             <button id="pick-image-btn" class="btn ghost" type="button" data-i18n="btn.image">图片</button>
-            <button id="voice-btn" class="btn ghost" type="button" data-i18n="btn.voice">语音</button>
             <button id="send-btn" class="btn primary" type="submit" data-i18n="btn.send">发送</button>
           </div>
         </form>

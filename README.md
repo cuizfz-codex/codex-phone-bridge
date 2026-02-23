@@ -16,13 +16,13 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 
 - 本版本已正式替代旧版 HTTP 方案，发布与推荐路径统一为 HTTPS。
 - `Start-Phone-Codex.command` 强制 HTTPS，并自动准备 TLS 证书（优先 Tailscale 证书，失败回退自签）。
-- 网页端语音按钮新增“不可用即灰色禁用”逻辑：浏览器不支持录音或页面非安全上下文时，按钮不可点击并显示原因。
+- 网页端输入区精简为“文本 + 图片”，已移除语音录制/上传入口与流程。
 
 ### English
 
 - This release replaces the old HTTP approach and standardizes the recommended path on HTTPS.
 - `Start-Phone-Codex.command` now enforces HTTPS and auto-provisions TLS material (prefers Tailscale cert, then self-signed fallback).
-- The web voice button is now disabled (grayed out) when recording is unavailable (unsupported browser or non-secure context).
+- The web composer now supports text + image only; voice recording/upload has been removed.
 
 ## 历史版本 / Previous (v0.3.5)
 
@@ -262,7 +262,7 @@ npm start
 常用环境变量：
 - `PORT=8787`
 - `BIND_HOST=0.0.0.0`（手机访问）或 `127.0.0.1`（仅本机）
-- `HTTPS_ENABLED=1`（旧 HTTP 方案已废弃；语音输入需要安全上下文）
+- `HTTPS_ENABLED=1`（旧 HTTP 方案已废弃；建议全程 HTTPS）
 - `HTTPS_CERT_FILE=/path/to/cert.pem`
 - `HTTPS_KEY_FILE=/path/to/key.pem`
 - `HTTPS_REDIRECT_PORT=0`（可选，>0 时额外启用 http->https 跳转端口）

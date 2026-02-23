@@ -6,11 +6,9 @@ All notable changes to `phone-codex` will be documented in this file.
 
 ### Added / Changed
 - Marked the HTTPS rollout as the canonical replacement for the prior HTTP-based launch path.
-- Updated startup defaults and docs to prefer/require HTTPS for web access and voice readiness.
+- Updated startup defaults and docs to prefer/require HTTPS for secure web access.
 - `Start-Phone-Codex.command` now prints initialization URLs and generates a startup QR image for mobile bootstrap.
-- Web UI voice button now enters a disabled (grayed-out) state when recording is unavailable:
-  - unsupported browser media APIs
-  - non-secure context (requires HTTPS or localhost)
+- Removed web voice recording/upload from the mobile composer; web input now supports text + image only.
 - `Start-Phone-Codex.command` remains the recommended entrypoint and enforces HTTPS.
 
 ### Deprecated
@@ -22,11 +20,9 @@ All notable changes to `phone-codex` will be documented in this file.
 
 ### 新增 / 变更
 - 正式将 HTTPS 方案确认为主方案，替代此前的 HTTP 启动路径。
-- 调整默认配置与文档，统一为 HTTPS 优先/必选，以满足网页端语音所需的安全上下文。
+- 调整默认配置与文档，统一为 HTTPS 优先/必选，以保障网页端安全访问。
 - `Start-Phone-Codex.command` 现会在启动后输出初始化 URL，并生成可扫码的手机初始化二维码。
-- 网页端语音按钮新增灰化禁用逻辑：以下场景不可点击并提示原因：
-  - 浏览器不支持录音 API
-  - 页面非安全上下文（需 HTTPS 或 localhost）
+- 网页端 composer 已移除语音录制/上传，输入能力调整为仅支持文本 + 图片。
 - `Start-Phone-Codex.command` 继续作为推荐入口，并强制 HTTPS 启动。
 
 ### 废弃
@@ -86,7 +82,7 @@ All notable changes to `phone-codex` will be documented in this file.
 - Language switch now displays target language:
   - Chinese UI shows `English`
   - English UI shows `中文`
-- Updated composer attachment layout so image/voice pending cards are rendered inside composer.
+- Updated composer attachment layout so image pending cards are rendered inside composer.
 
 ### Fixed
 - Fixed mobile web issue where text input appeared unavailable after attaching an image.
@@ -105,7 +101,7 @@ All notable changes to `phone-codex` will be documented in this file.
 - 语言切换改为显示“目标语言”：
   - 中文界面显示 `English`
   - 英文界面显示 `中文`
-- 调整发送区附件布局：图片/语音待发送卡片并入 composer 内部。
+- 调整发送区附件布局：图片待发送卡片并入 composer 内部。
 
 ### 修复
 - 修复手机网页中“添加图片后文本输入体验异常”的问题。

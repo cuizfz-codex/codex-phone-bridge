@@ -12,53 +12,53 @@ function mockMediaService(mediaById) {
   };
 }
 
-test("buildTurnInput uses voice transcript preview when explicit transcript is missing", () => {
+test("buildTurnInput keeps plain text and linked images", () => {
   const mediaSvc = mockMediaService({
-    voice1: {
-      id: "voice1",
-      kind: "voice",
-      metadata: {
-        transcriptPreview: "hello from preview",
-      },
+    img1: {
+      id: "img1",
+      kind: "image",
+      absolutePath: "/tmp/image-1.png",
     },
   });
 
   const result = buildTurnInput(
     {
-      text: "",
-      voiceMediaId: "voice1",
-      voiceTranscript: "",
+      text: "hello world",
+      imageMediaIds: ["img1"],
     },
     mediaSvc
   );
 
-  assert.equal(result.input.length, 1);
-  assert.equal(result.input[0].type, "text");
-  assert.match(result.input[0].text, /\[语音转写\]/);
-  assert.match(result.input[0].text, /hello from preview/);
-  assert.deepEqual(result.linkMediaIds, ["voice1"]);
+  assert.equal(result.input.length, 2);
+  assert.deepEqual(result.input[0], {
+    type: "text",
+    text: "hello world",
+    text_elements: [],
+  });
+  assert.deepEqual(result.input[1], {
+    type: "localImage",
+    path: "/tmp/image-1.png",
+  });
+  assert.deepEqual(result.linkMediaIds, ["img1"]);
 });
 
-test("buildTurnInput keeps voice turn sendable when transcript is unavailable", () => {
+test("buildTurnInput ignores non-image media ids", () => {
   const mediaSvc = mockMediaService({
-    voice2: {
-      id: "voice2",
-      kind: "voice",
-      metadata: {},
+    media1: {
+      id: "media1",
+      kind: "file",
+      absolutePath: "/tmp/anything.bin",
     },
   });
 
   const result = buildTurnInput(
     {
       text: "",
-      voiceMediaId: "voice2",
-      voiceTranscript: "",
+      imageMediaIds: ["media1"],
     },
     mediaSvc
   );
 
-  assert.equal(result.input.length, 1);
-  assert.equal(result.input[0].type, "text");
-  assert.match(result.input[0].text, /Voice message attached/i);
-  assert.deepEqual(result.linkMediaIds, ["voice2"]);
+  assert.equal(result.input.length, 0);
+  assert.deepEqual(result.linkMediaIds, []);
 });

@@ -175,7 +175,6 @@ class BridgeHandle extends EventEmitter {
       env.AUTO_APPROVAL_MODE = String(this.config.autoApprovalMode);
 
     if (this.config.maxImageMb) env.MAX_IMAGE_MB = String(this.config.maxImageMb);
-    if (this.config.maxVoiceMb) env.MAX_VOICE_MB = String(this.config.maxVoiceMb);
 
     // In ws mode, nudge is irrelevant and can cause unnecessary prompts.
     if (this.config.desktopNudgeMode !== undefined) {

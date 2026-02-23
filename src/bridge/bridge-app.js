@@ -80,7 +80,6 @@ const THREAD_READ_POLL_IDLE_MS = Number(
   process.env.THREAD_READ_POLL_IDLE_MS || 10000
 );
 const MAX_IMAGE_MB = Number(process.env.MAX_IMAGE_MB || 12);
-const MAX_VOICE_MB = Number(process.env.MAX_VOICE_MB || 25);
 const DEFAULT_APPROVAL_POLICY = normalizeApprovalPolicy(
   process.env.DEFAULT_APPROVAL_POLICY || "never"
 );
@@ -891,20 +890,6 @@ async function handleV2Api(req, res, url, pathname) {
       ok: true,
       mediaId: result.mediaId,
       localPath: result.localPath,
-      mimeType: result.mimeType,
-      size: result.size,
-      url: result.url,
-    });
-    return;
-  }
-
-  if (req.method === "POST" && pathname === "/api/v2/media/voice") {
-    const body = await readJsonBody(req, MAX_BODY_BYTES * 4);
-    const result = await mediaService.saveVoice(body || {});
-    sendJson(res, 200, {
-      ok: true,
-      mediaId: result.mediaId,
-      filePath: result.filePath,
       mimeType: result.mimeType,
       size: result.size,
       url: result.url,
@@ -1827,7 +1812,6 @@ async function bootstrap() {
     mediaRoot: MEDIA_ROOT,
     indexPath: MEDIA_INDEX,
     maxImageBytes: MAX_IMAGE_MB * 1024 * 1024,
-    maxVoiceBytes: MAX_VOICE_MB * 1024 * 1024,
   });
   threadSync = new ThreadSyncService({
     rpc,

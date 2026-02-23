@@ -58,36 +58,10 @@ function buildTurnInput(body, mediaSvc) {
 
   const input = [];
   const text = (body.text || "").trim();
-  let voice = null;
-  let voiceId = "";
-  if (body.voiceMediaId) {
-    voiceId = String(body.voiceMediaId);
-    const maybeVoice = mediaSvc.getById(voiceId);
-    if (maybeVoice && maybeVoice.kind === "voice") {
-      voice = maybeVoice;
-      linkMediaIds.push(voiceId);
-    }
-  }
-
-  const voiceTranscriptRaw = (body.voiceTranscript || "").trim();
-  const voiceTranscriptPreview =
-    voice &&
-    voice.metadata &&
-    typeof voice.metadata === "object" &&
-    voice.metadata.transcriptPreview
-      ? String(voice.metadata.transcriptPreview).trim()
-      : "";
-  const voiceTranscript = voiceTranscriptRaw || voiceTranscriptPreview;
-  const textBlocks = [];
-  if (text) textBlocks.push(text);
-  if (voiceTranscript) textBlocks.push(`[语音转写]\n${voiceTranscript}`);
-  if (!text && !voiceTranscript && voice) {
-    textBlocks.push("[Voice message attached. Transcript unavailable.]");
-  }
-  if (textBlocks.length > 0) {
+  if (text) {
     input.push({
       type: "text",
-      text: textBlocks.join("\n\n"),
+      text,
       text_elements: [],
     });
   }
