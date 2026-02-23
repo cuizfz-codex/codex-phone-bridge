@@ -1318,14 +1318,15 @@ dialog::backdrop {
       opacity 140ms ease,
       box-shadow 180ms ease;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 72px;
+    grid-template-columns: minmax(0, 1fr) 58px;
     grid-template-areas:
       "toggle toggle"
       "input actions"
       "attachments attachments";
     align-items: stretch;
-    column-gap: 2px;
+    column-gap: 1px;
     row-gap: 6px;
+    padding: 8px 2px 8px 8px;
   }
 
   body.mobile-compact-mode.composer-open .composer {
@@ -1363,9 +1364,9 @@ dialog::backdrop {
     align-self: stretch;
     display: grid;
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    width: 72px;
-    min-width: 72px;
+    gap: 5px;
+    width: 58px;
+    min-width: 58px;
     height: 100%;
   }
 
@@ -1380,8 +1381,8 @@ dialog::backdrop {
   }
 
   .mobile-compact-mode .composer-actions .btn::before {
-    width: 27px;
-    height: 27px;
+    width: 26px;
+    height: 26px;
   }
 
   .mobile-compact-mode .attachments {
