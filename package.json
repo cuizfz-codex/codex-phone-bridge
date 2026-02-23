@@ -1,0 +1,22 @@
+{
+  "name": "phone-codex-core",
+  "version": "0.3.5",
+  "private": true,
+  "description": "Core services for phone-codex (bridge + ws proxy)",
+  "main": "src/index.js",
+  "files": [
+    "src/**/*",
+    "public/**/*",
+    "server.js",
+    "README.md",
+    ".env.example"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test ./test/*.test.js",
+    "safety:addresses": "bash ./scripts/check-sensitive-addresses.sh"
+  },
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

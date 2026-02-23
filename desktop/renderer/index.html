@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>phone-codex</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">pc</div>
+        <div class="titles">
+          <h1>phone-codex</h1>
+          <p data-i18n="subtitle">Codex mobile web sync controller</p>
+        </div>
+      </div>
+      <div class="sync top-sync">
+        <label class="switch">
+          <input id="syncToggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+        <div class="sync-meta">
+          <div id="syncLabel" class="sync-label">Sync OFF</div>
+          <div id="syncHint" class="sync-hint"></div>
+        </div>
+      </div>
+      <div class="lang-control" role="group" aria-label="Language">
+        <span class="lang-side">中文</span>
+        <label class="switch lang-switch">
+          <input id="uiLanguageToggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+        <span class="lang-side">English</span>
+      </div>
+    </header>
+
+    <main class="main-layout">
+      <div class="view-tabs" role="tablist" aria-label="Main View Tabs">
+        <button id="tabControl" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-i18n="tab_control">
+          Control
+        </button>
+        <button id="tabLogs" class="tab-btn" type="button" role="tab" aria-selected="false" data-i18n="tab_logs">
+          Logs
+        </button>
+      </div>
+
+      <section id="panelControl" class="panel is-active" role="tabpanel">
+        <div class="grid">
+      <section class="card status-card">
+        <h2 data-i18n="section_status">Status</h2>
+        <div class="kv">
+          <div class="k" data-i18n="label_proxy">Proxy</div>
+          <div id="proxyStatus" class="v">--</div>
+          <div class="k" data-i18n="label_socks">SOCKS</div>
+          <div id="socksStatus" class="v">--</div>
+          <div class="k" data-i18n="label_codex_desktop">Codex Desktop</div>
+          <div id="codexStatus" class="v">--</div>
+          <div class="k" data-i18n="label_bridge">Bridge</div>
+          <div id="bridgeStatus" class="v">--</div>
+          <div class="k" data-i18n="label_launchctl">launchctl</div>
+          <div id="launchctlStatus" class="v">--</div>
+        </div>
+        <div class="actions">
+          <button id="emergencyDisable" class="btn danger" data-i18n="btn_emergency_disable">Emergency Disable</button>
+        </div>
+        <p class="note" data-i18n="note_sync_reopen_codex">
+          When Sync is ON, you must quit Codex (Cmd+Q) and reopen it from Dock to
+          enable realtime Web to Desktop sync.
+        </p>
+      </section>
+
+      <section class="card binding-card">
+        <h2 data-i18n="section_device_binding">Device Binding</h2>
+        <div class="kv">
+          <div class="k" data-i18n="label_auth_mode">Auth Mode</div>
+          <div id="pairingAuthMode" class="v">--</div>
+          <div class="k" data-i18n="label_bound_device">Bound Device</div>
+          <div id="boundDeviceStatus" class="v">--</div>
+          <div class="k" data-i18n="label_pairing_session">Pairing Session</div>
+          <div id="pairingSessionStatus" class="v">--</div>
+          <div class="k" data-i18n="label_expires_at">Expires At</div>
+          <div id="pairingExpiresAt" class="v">--</div>
+        </div>
+        <div class="row">
+          <select id="pairingUrlSelect"></select>
+          <button id="copyPairingUrl" class="btn" data-i18n="btn_copy">Copy</button>
+        </div>
+        <div class="qr-wrap">
+          <img id="pairingQr" alt="Pairing QR" />
+        </div>
+        <div class="pair-code">
+          <span data-i18n="label_verification_code">Verification Code</span>
+          <strong id="pairingCode">--</strong>
+        </div>
+        <div class="actions">
+          <button id="startPairing" class="btn" data-i18n="btn_start_pairing">Start Pairing</button>
+          <button id="resetPairing" class="btn danger" data-i18n="btn_reset_binding">Reset Binding</button>
+        </div>
+        <p class="note" data-i18n="note_pairing">
+          Start Pairing will show a one-time code for first-time phone binding. Reset Binding revokes
+          all previously paired phones immediately.
+        </p>
+      </section>
+
+      <section class="card remote-card">
+        <h2 data-i18n="section_remote_access">Remote Access</h2>
+        <div class="kv">
+          <div class="k" data-i18n="label_mode">Mode</div>
+          <div id="remoteModeStatus" class="v">--</div>
+          <div class="k" data-i18n="label_tailscale">Tailscale</div>
+          <div id="tailscaleStatus" class="v">--</div>
+          <div class="k" data-i18n="label_tailscale_ipv4">Tailscale IPv4</div>
+          <div id="tailscaleIpv4" class="v">--</div>
+          <div class="k" data-i18n="label_magicdns">MagicDNS</div>
+          <div id="tailscaleMagicDns" class="v">--</div>
+        </div>
+        <div class="row">
+          <select id="remoteUrlSelect"></select>
+          <button id="copyRemoteUrl" class="btn" data-i18n="btn_copy">Copy</button>
+        </div>
+        <p id="remoteHint" class="note"></p>
+        <details class="advanced">
+          <summary data-i18n="summary_remote_advanced">Remote Advanced</summary>
+          <div class="kv">
+            <div class="k" data-i18n="label_remote_mode">Remote Mode</div>
+            <div class="v">
+              <select id="remoteMode">
+                <option value="tailscale" data-i18n="opt_tailscale_recommended">tailscale (Recommended)</option>
+                <option value="off" data-i18n="opt_off">off</option>
+              </select>
+            </div>
+            <div class="k" data-i18n="label_allow_lan_clients">Allow LAN Clients</div>
+            <div class="v">
+              <label class="checkbox">
+                <input id="allowLanClients" type="checkbox" />
+                <span data-i18n="label_allow_lan_clients_detail">Allow RFC1918 LAN ranges</span>
+              </label>
+            </div>
+            <div class="k" data-i18n="label_show_remote_urls">Show Remote URLs</div>
+            <div class="v">
+              <label class="checkbox">
+                <input id="showRemoteUrlInUi" type="checkbox" />
+                <span data-i18n="label_show_remote_urls_detail">Show tailscale URLs in UI</span>
+              </label>
+            </div>
+            <div class="k" data-i18n="label_tailscale_cli_path">tailscale CLI Path</div>
+            <div class="v">
+              <input id="tailscaleCliPath" type="text" />
+            </div>
+            <div class="k" data-i18n="label_allowed_cidrs">Allowed CIDRs</div>
+            <div class="v">
+              <textarea id="allowedClientCidrs" rows="4"></textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="saveRemoteSettings" class="btn" data-i18n="btn_save_remote_settings">Save Remote Settings</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="card phone-card">
+        <h2 data-i18n="section_phone_url">Phone URL</h2>
+        <div class="row">
+          <select id="phoneUrlSelect"></select>
+          <button id="copyPhoneUrl" class="btn" data-i18n="btn_copy">Copy</button>
+        </div>
+        <div class="advanced always-open">
+          <div class="kv">
+            <div class="k" data-i18n="label_bind_host">Bind Host</div>
+            <div class="v">
+              <select id="bindHost">
+                <option value="0.0.0.0" data-i18n="opt_bind_lan">0.0.0.0 (LAN)</option>
+                <option value="127.0.0.1" data-i18n="opt_bind_local">127.0.0.1 (Local)</option>
+              </select>
+            </div>
+            <div class="k" data-i18n="label_bridge_port">Bridge Port</div>
+            <div class="v">
+              <input id="bridgePort" type="number" min="1" max="65535" />
+            </div>
+            <div class="k" data-i18n="label_proxy_port">Proxy Port</div>
+            <div class="v">
+              <input id="proxyPort" type="number" min="1" max="65535" />
+            </div>
+            <div class="k" data-i18n="label_proxy_debug">Proxy Debug Logs</div>
+            <div class="v">
+              <label class="checkbox">
+                <input id="proxyDebug" type="checkbox" />
+                <span data-i18n="label_proxy_debug_enable">Enable (no message content)</span>
+              </label>
+            </div>
+            <div class="k" data-i18n="label_desktop_overlay">Desktop Overlay</div>
+            <div class="v">
+              <select id="desktopOverlayMode">
+                <option value="authoritative" data-i18n="opt_overlay_authoritative">Authoritative (Recommended)</option>
+                <option value="off" data-i18n="opt_off">Off</option>
+              </select>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="saveConfig" class="btn" data-i18n="btn_save">Save</button>
+            <button id="regenToken" class="btn ghost" data-i18n="btn_regen_token">Regenerate Token</button>
+            <button id="openWebUiDebug" class="btn ghost" data-i18n="btn_open_web_debug">Open Local Debug Web</button>
+          </div>
+        </div>
+      </section>
+        </div>
+      </section>
+
+      <section id="panelLogs" class="panel" role="tabpanel" aria-hidden="true">
+      <section class="card logs-card logs">
+        <h2 data-i18n="section_logs">Logs</h2>
+        <pre id="logs"></pre>
+      </section>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

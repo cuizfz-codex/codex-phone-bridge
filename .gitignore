@@ -1,0 +1,14 @@
+.env
+launcher.env
+node_modules
+data/media
+data/runtime/*.pid
+data/runtime/*.log
+.tmp_inspect/
+.DS_Store
+tools/*.app
+tools/
+desktop/dist
+desktop/.electron-builder-cache
+openclaw-src/
+downloads/

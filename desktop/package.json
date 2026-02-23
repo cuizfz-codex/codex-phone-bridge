@@ -1,0 +1,55 @@
+{
+  "name": "phone-codex",
+  "version": "0.3.5",
+  "private": true,
+  "description": "Menu bar controller for phone-codex (Codex mobile web sync)",
+  "main": "main/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "phone-codex-core": "file:..",
+    "qrcode": "^1.5.3",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "productName": "phone-codex",
+    "appId": "com.phonecodex.app",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "!node_modules/phone-codex-core/.env",
+      "!node_modules/phone-codex-core/desktop{,/**}",
+      "!node_modules/phone-codex-core/node_modules{,/**}",
+      "!node_modules/phone-codex-core/openclaw-src{,/**}",
+      "!node_modules/phone-codex-core/tools{,/**}",
+      "!node_modules/phone-codex-core/downloads{,/**}",
+      "!node_modules/phone-codex-core/data{,/**}"
+    ],
+    "dmg": {
+      "sign": false
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.icns",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    }
+  }
+}

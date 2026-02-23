@@ -1,0 +1,20 @@
+{
+  "git-status": {
+    "bin": "git",
+    "args": ["status", "--short", "--branch"],
+    "allowUserArgs": false,
+    "timeoutMs": 15000
+  },
+  "list-files": {
+    "bin": "rg",
+    "args": ["--files"],
+    "allowUserArgs": true,
+    "timeoutMs": 30000
+  },
+  "node-version": {
+    "bin": "node",
+    "args": ["-v"],
+    "allowUserArgs": false,
+    "timeoutMs": 5000
+  }
+}
