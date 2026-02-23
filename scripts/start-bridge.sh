@@ -5,10 +5,23 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PID_FILE="/tmp/codex-phone-bridge.pid"
 LOG_FILE="/tmp/codex-phone-bridge.log"
 PORT="${PORT:-8787}"
-HTTPS_ENABLED="${HTTPS_ENABLED:-0}"
+HTTPS_ENABLED="${HTTPS_ENABLED:-1}"
 URL_SCHEME="http"
 if [[ "${HTTPS_ENABLED}" == "1" ]]; then
   URL_SCHEME="https"
+fi
+HTTPS_CERT_FILE="${HTTPS_CERT_FILE:-}"
+HTTPS_KEY_FILE="${HTTPS_KEY_FILE:-}"
+
+if [[ "${HTTPS_ENABLED}" != "1" ]]; then
+  echo "ERROR: HTTP mode is deprecated. Please set HTTPS_ENABLED=1." >&2
+  exit 1
+fi
+
+if [[ -z "${HTTPS_CERT_FILE}" || -z "${HTTPS_KEY_FILE}" ]]; then
+  echo "ERROR: HTTPS_CERT_FILE and HTTPS_KEY_FILE are required for scripts/start-bridge.sh" >&2
+  echo "Hint: use Start-Phone-Codex.command for auto TLS provisioning." >&2
+  exit 1
 fi
 
 if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -17,7 +30,11 @@ if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
-nohup node server.js >"${LOG_FILE}" 2>&1 &
+nohup env \
+  HTTPS_ENABLED="1" \
+  HTTPS_CERT_FILE="${HTTPS_CERT_FILE}" \
+  HTTPS_KEY_FILE="${HTTPS_KEY_FILE}" \
+  node server.js >"${LOG_FILE}" 2>&1 &
 PID=$!
 echo "${PID}" > "${PID_FILE}"
 

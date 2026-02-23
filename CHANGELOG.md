@@ -2,6 +2,36 @@
 
 All notable changes to `phone-codex` will be documented in this file.
 
+## v0.3.6 - 2026-02-23
+
+### Added / Changed
+- Marked the HTTPS rollout as the canonical replacement for the prior HTTP-based launch path.
+- Updated startup defaults and docs to prefer/require HTTPS for web access and voice readiness.
+- Web UI voice button now enters a disabled (grayed-out) state when recording is unavailable:
+  - unsupported browser media APIs
+  - non-secure context (requires HTTPS or localhost)
+- `Start-Phone-Codex.command` remains the recommended entrypoint and enforces HTTPS.
+
+### Deprecated
+- Legacy HTTP usage patterns are considered deprecated for phone/web usage.
+
+---
+
+## v0.3.6 - 2026-02-23（中文）
+
+### 新增 / 变更
+- 正式将 HTTPS 方案确认为主方案，替代此前的 HTTP 启动路径。
+- 调整默认配置与文档，统一为 HTTPS 优先/必选，以满足网页端语音所需的安全上下文。
+- 网页端语音按钮新增灰化禁用逻辑：以下场景不可点击并提示原因：
+  - 浏览器不支持录音 API
+  - 页面非安全上下文（需 HTTPS 或 localhost）
+- `Start-Phone-Codex.command` 继续作为推荐入口，并强制 HTTPS 启动。
+
+### 废弃
+- 面向手机网页访问的旧 HTTP 使用方式视为废弃。
+
+---
+
 ## v0.3.5 - 2026-02-19
 
 ### Added / Changed
