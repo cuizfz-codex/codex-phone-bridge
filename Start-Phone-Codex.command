@@ -316,49 +316,38 @@ print_urls() {
   fi
 }
 
-render_setup_qr_png() {
+render_setup_qr() {
   local url="$1"
   local output_file="$2"
 
-  if command -v qrencode >/dev/null 2>&1; then
-    qrencode -o "${output_file}" -m 2 -s 8 "${url}" >/dev/null 2>&1 && return 0
-  fi
+  node - "${url}" "${output_file}" <<'NODE'
+const QRCode = require("qrcode");
 
-  if ! command -v swift >/dev/null 2>&1; then
-    return 1
-  fi
+const text = String(process.argv[2] || "");
+const outputPath = String(process.argv[3] || "");
 
-  swift - "${url}" "${output_file}" >/dev/null 2>&1 <<'SWIFT'
-import Foundation
-import CoreImage
-import AppKit
-
-let args = CommandLine.arguments
-guard args.count >= 3 else { exit(1) }
-let urlText = args[1]
-let outputPath = args[2]
-
-guard let data = urlText.data(using: .utf8) else { exit(2) }
-guard let filter = CIFilter(name: "CIQRCodeGenerator") else { exit(3) }
-filter.setValue(data, forKey: "inputMessage")
-filter.setValue("M", forKey: "inputCorrectionLevel")
-guard let ciImage = filter.outputImage else { exit(4) }
-
-let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-let rep = NSCIImageRep(ciImage: scaled)
-let image = NSImage(size: rep.size)
-image.addRepresentation(rep)
-
-guard let tiff = image.tiffRepresentation else { exit(5) }
-guard let bitmap = NSBitmapImageRep(data: tiff) else { exit(6) }
-guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(7) }
-
-do {
-  try png.write(to: URL(fileURLWithPath: outputPath))
-} catch {
-  exit(8)
+async function run() {
+  const terminal = await QRCode.toString(text, {
+    type: "terminal",
+    small: true,
+    errorCorrectionLevel: "M",
+  });
+  process.stdout.write(terminal + "\n");
+  if (outputPath) {
+    await QRCode.toFile(outputPath, text, {
+      type: "png",
+      margin: 1,
+      scale: 8,
+      errorCorrectionLevel: "M",
+    });
+  }
 }
-SWIFT
+
+run().catch((error) => {
+  process.stderr.write(String(error && error.message ? error.message : error) + "\n");
+  process.exit(1);
+});
+NODE
 }
 
 show_mobile_bootstrap() {
@@ -367,11 +356,11 @@ show_mobile_bootstrap() {
   local qr_file="${RUNTIME_DIR}/phone-codex-mobile-setup-qr.png"
 
   echo "Setup URL : ${setup_url}"
-  if render_setup_qr_png "${setup_url}" "${qr_file}"; then
+  if render_setup_qr "${setup_url}" "${qr_file}"; then
     echo "Setup QR  : ${qr_file}"
     open "${qr_file}" >/dev/null 2>&1 || true
   else
-    echo "Setup QR  : unavailable (install qrencode or Xcode Command Line Tools)"
+    echo "Setup QR  : unavailable (failed to render terminal/PNG QR)"
   fi
 
   open "${setup_url}" >/dev/null 2>&1 || true
@@ -392,6 +381,14 @@ fi
 
 LISTENING_PIDS="$(lsof -tiTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
 if [[ -n "${LISTENING_PIDS}" ]]; then
+  if wait_for_health; then
+    echo "phone-codex is already running on port ${PORT}."
+    print_urls
+    echo "Log file : ${LOG_FILE}"
+    show_mobile_bootstrap
+    read -r -p "Press Enter to close..."
+    exit 0
+  fi
   echo "ERROR: Port ${PORT} is already in use by another process:"
   echo "${LISTENING_PIDS}" | xargs -n1 ps -p 2>/dev/null || true
   read -r -p "Press Enter to close..."

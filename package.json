@@ -17,6 +17,7 @@
     "safety:addresses": "bash ./scripts/check-sensitive-addresses.sh"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "ws": "^8.19.0"
   }
 }
