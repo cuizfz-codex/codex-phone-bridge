@@ -328,8 +328,7 @@ const outputPath = String(process.argv[3] || "");
 
 async function run() {
   const terminal = await QRCode.toString(text, {
-    type: "terminal",
-    small: true,
+    type: "utf8",
     errorCorrectionLevel: "M",
   });
   process.stdout.write(terminal + "\n");
