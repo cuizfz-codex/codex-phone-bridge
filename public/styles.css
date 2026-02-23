@@ -1356,7 +1356,7 @@ dialog::backdrop {
     height: 100%;
     align-self: stretch;
     margin: 0;
-    padding-right: 38px;
+    padding-right: 44px;
   }
 
   .mobile-compact-mode .composer-actions {
@@ -1366,23 +1366,23 @@ dialog::backdrop {
     margin: 0;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    gap: 0;
-    width: 28px;
-    min-width: 28px;
+    gap: 8px;
+    width: 34px;
+    min-width: 34px;
     height: 100%;
-    padding: 3px 2px 3px 0;
+    padding: 0 1px 0 0;
     pointer-events: none;
     z-index: 2;
   }
 
   .mobile-compact-mode .composer-actions .btn {
     pointer-events: auto;
-    width: 24px;
-    min-width: 24px;
-    min-height: 24px;
-    height: 24px;
+    width: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    height: 30px;
     padding: 0;
     font-size: 0;
     line-height: 0;
@@ -1393,8 +1393,8 @@ dialog::backdrop {
   }
 
   .mobile-compact-mode .composer-actions .btn::before {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     opacity: 1;
     filter: drop-shadow(0 0 1px color-mix(in srgb, currentColor 50%, transparent));
   }
