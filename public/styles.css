@@ -293,6 +293,22 @@ h3 {
   gap: 8px;
 }
 
+.sidebar-primary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sidebar-primary-actions .btn {
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: 0.82rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .menu-display-controls {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -300,7 +316,33 @@ h3 {
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 80%, transparent);
   padding: 8px;
   display: grid;
+  gap: 6px;
+}
+
+.menu-display-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.menu-display-grid .menu-toggle-row {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  padding: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menu-display-grid .menu-toggle-copy {
+  gap: 1px;
+}
+
+.menu-display-grid .menu-toggle-target {
+  font-size: 0.78rem;
 }
 
 .menu-toggle-row {

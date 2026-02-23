@@ -51,28 +51,32 @@
         </section>
 
         <section class="sidebar-controls">
-          <button id="new-thread-btn" class="btn" type="button" data-i18n="btn.newThread">新建 Thread</button>
-          <button id="refresh-threads-btn" class="btn ghost" type="button" data-i18n="btn.refresh">刷新</button>
+          <div class="sidebar-primary-actions">
+            <button id="new-thread-btn" class="btn" type="button" data-i18n="btn.newThread">新建 Thread</button>
+            <button id="refresh-threads-btn" class="btn ghost" type="button" data-i18n="btn.refresh">刷新</button>
+          </div>
           <section class="menu-display-controls">
-            <div class="menu-toggle-row">
-              <div class="menu-toggle-copy">
-                <span class="menu-toggle-label" data-i18n="menu.language">语言</span>
-                <span id="lang-toggle-target" class="menu-toggle-target">English</span>
+            <div class="menu-display-grid">
+              <div class="menu-toggle-row">
+                <div class="menu-toggle-copy">
+                  <span class="menu-toggle-label" data-i18n="menu.language">语言</span>
+                  <span id="lang-toggle-target" class="menu-toggle-target">English</span>
+                </div>
+                <label class="switch-pill" data-i18n-title="tooltip.languageToggle">
+                  <input id="lang-toggle" type="checkbox" />
+                  <span class="switch-pill-track"></span>
+                </label>
               </div>
-              <label class="switch-pill" data-i18n-title="tooltip.languageToggle">
-                <input id="lang-toggle" type="checkbox" />
-                <span class="switch-pill-track"></span>
-              </label>
-            </div>
-            <div class="menu-toggle-row">
-              <div class="menu-toggle-copy">
-                <span class="menu-toggle-label" data-i18n="menu.theme">主题</span>
-                <span id="theme-toggle-current" class="menu-toggle-target">亮色</span>
+              <div class="menu-toggle-row">
+                <div class="menu-toggle-copy">
+                  <span class="menu-toggle-label" data-i18n="menu.theme">主题</span>
+                  <span id="theme-toggle-current" class="menu-toggle-target">亮色</span>
+                </div>
+                <label class="switch-pill" data-i18n-title="tooltip.themeToggle">
+                  <input id="theme-toggle" type="checkbox" />
+                  <span class="switch-pill-track"></span>
+                </label>
               </div>
-              <label class="switch-pill" data-i18n-title="tooltip.themeToggle">
-                <input id="theme-toggle" type="checkbox" />
-                <span class="switch-pill-track"></span>
-              </label>
             </div>
           </section>
           <input id="thread-search" type="search" placeholder="搜索 thread 关键词..." data-i18n-placeholder="input.searchThreads" />
