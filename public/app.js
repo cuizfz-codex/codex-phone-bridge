@@ -124,6 +124,7 @@ const I18N = {
     "btn.image": "图片",
     "btn.voice": "语音",
     "btn.voiceStop": "停止",
+    "btn.voiceProcessing": "处理中",
     "btn.send": "发送",
     "btn.cancel": "取消",
     "btn.save": "保存",
@@ -241,6 +242,8 @@ const I18N = {
     "status.sentTurn": "已发送到线程 {id}... · 回合 {turnId}",
     "status.sentThread": "已发送到线程 {id}...",
     "status.voiceUploadFailed": "语音上传失败: {error}",
+    "status.voiceProcessing": "正在处理录音...",
+    "status.voiceEmpty": "未录到有效声音，请重试",
     "status.recordingProgress": "录音中... {text}",
     "status.recording": "录音中...",
     "status.voiceSaved": "语音已保存并待发送",
@@ -276,6 +279,7 @@ const I18N = {
     "voice.remove": "移除",
     "voice.notSupported": "当前浏览器不支持录音",
     "voice.secureRequired": "当前页面不是安全上下文（需 HTTPS 或 localhost）",
+    "voice.processing": "正在处理上一段录音，请稍候",
     "voice.title": "语音: {id}...",
     "voice.transcriptPlaceholder": "可编辑转写文本",
     "voice.removeVoice": "移除语音",
@@ -309,6 +313,7 @@ const I18N = {
     "btn.image": "Image",
     "btn.voice": "Voice",
     "btn.voiceStop": "Stop",
+    "btn.voiceProcessing": "Processing",
     "btn.send": "Send",
     "btn.cancel": "Cancel",
     "btn.save": "Save",
@@ -428,6 +433,8 @@ const I18N = {
     "status.sentTurn": "Sent to thread {id}... · turn {turnId}",
     "status.sentThread": "Sent to thread {id}...",
     "status.voiceUploadFailed": "Voice upload failed: {error}",
+    "status.voiceProcessing": "Processing voice recording...",
+    "status.voiceEmpty": "No valid audio captured. Please try again.",
     "status.recordingProgress": "Recording... {text}",
     "status.recording": "Recording...",
     "status.voiceSaved": "Voice saved and queued",
@@ -463,6 +470,7 @@ const I18N = {
     "voice.remove": "Remove",
     "voice.notSupported": "This browser does not support audio recording",
     "voice.secureRequired": "Voice recording requires HTTPS (or localhost)",
+    "voice.processing": "Processing previous recording. Please wait.",
     "voice.title": "Voice: {id}...",
     "voice.transcriptPlaceholder": "Editable transcript",
     "voice.removeVoice": "Remove voice",
@@ -552,6 +560,9 @@ const state = {
     supported: true,
     supportReasonKey: "",
     recording: false,
+    uploading: false,
+    uploadPromise: null,
+    stopPromise: null,
     mediaRecorder: null,
     recognition: null,
     stream: null,
@@ -853,6 +864,7 @@ function hasComposerWorkingContent() {
     state.pendingImages.length > 0 ||
     Boolean(state.pendingVoice) ||
     Boolean(state.voice && state.voice.recording) ||
+    Boolean(state.voice && state.voice.uploading) ||
     Boolean(state.sending)
   );
 }
@@ -1155,13 +1167,19 @@ function evaluateVoiceSupport() {
 
 function updateVoiceButtonUi() {
   if (!elements.voiceBtn) return;
-  elements.voiceBtn.textContent = state.voice.recording
-    ? t("btn.voiceStop")
-    : t("btn.voice");
-  const disabled = !state.voice.supported;
+  if (state.voice.uploading) {
+    elements.voiceBtn.textContent = t("btn.voiceProcessing");
+  } else {
+    elements.voiceBtn.textContent = state.voice.recording
+      ? t("btn.voiceStop")
+      : t("btn.voice");
+  }
+  const disabled = !state.voice.supported || state.voice.uploading;
   elements.voiceBtn.disabled = disabled;
   if (disabled) {
-    const reasonKey = state.voice.supportReasonKey || "voice.notSupported";
+    const reasonKey = state.voice.uploading
+      ? "voice.processing"
+      : state.voice.supportReasonKey || "voice.notSupported";
     elements.voiceBtn.title = t(reasonKey);
     elements.voiceBtn.setAttribute("aria-disabled", "true");
   } else {
@@ -3515,6 +3533,16 @@ async function sendCurrentMessage() {
     throw new Error(t("error.cannotDetermineThread"));
   }
 
+  if (state.voice.recording) {
+    await stopVoiceRecording();
+  }
+  if (state.voice.uploadPromise) {
+    setStatusKey("status.voiceProcessing");
+    await state.voice.uploadPromise.catch(() => {
+      // Upload error is already surfaced in stop handler.
+    });
+  }
+
   const text = elements.input.value.trim();
   const hasText = Boolean(text);
   const hasImages = state.pendingImages.length > 0;
@@ -3654,6 +3682,9 @@ async function toggleVoiceRecording() {
 }
 
 async function startVoiceRecording() {
+  if (state.voice.uploading || state.voice.uploadPromise) {
+    throw new Error(t("voice.processing"));
+  }
   evaluateVoiceSupport();
   if (!state.voice.supported) {
     throw new Error(t(state.voice.supportReasonKey || "voice.notSupported"));
@@ -3662,30 +3693,53 @@ async function startVoiceRecording() {
     throw new Error(t("voice.notSupported"));
   }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const recorder = new MediaRecorder(stream);
+  const preferredMimeType = pickPreferredVoiceMimeType();
+  const recorder = preferredMimeType
+    ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+    : new MediaRecorder(stream);
+  const recordedChunks = [];
+  let resolveStopPromise = null;
+  state.voice.stopPromise = new Promise((resolve) => {
+    resolveStopPromise = resolve;
+  });
   state.voice.stream = stream;
   state.voice.mediaRecorder = recorder;
-  state.voice.chunks = [];
+  state.voice.chunks = recordedChunks;
   state.voice.finalTranscript = "";
   state.voice.interimTranscript = "";
 
   recorder.addEventListener("dataavailable", (event) => {
     if (event.data && event.data.size > 0) {
-      state.voice.chunks.push(event.data);
+      recordedChunks.push(event.data);
     }
   });
   recorder.addEventListener("stop", async () => {
-    const blob = new Blob(state.voice.chunks, {
-      type: recorder.mimeType || "audio/webm",
+    const blob = new Blob(recordedChunks, {
+      type: recorder.mimeType || preferredMimeType || "audio/webm",
     });
-    if (blob.size > 0) {
-      try {
-        await uploadVoiceBlob(blob, state.voice.finalTranscript.trim());
-      } catch (error) {
-        setStatusKey("status.voiceUploadFailed", { error: asMessage(error) });
-      }
+    if (blob.size <= 0) {
+      setStatusKey("status.voiceEmpty");
+      cleanupVoiceState();
+      if (resolveStopPromise) resolveStopPromise();
+      state.voice.stopPromise = null;
+      return;
     }
-    cleanupVoiceState();
+    state.voice.uploading = true;
+    updateVoiceButtonUi();
+    setStatusKey("status.voiceProcessing");
+    const uploadPromise = uploadVoiceBlob(blob, state.voice.finalTranscript.trim());
+    state.voice.uploadPromise = uploadPromise;
+    try {
+      await uploadPromise;
+    } catch (error) {
+      setStatusKey("status.voiceUploadFailed", { error: asMessage(error) });
+    } finally {
+      state.voice.uploadPromise = null;
+      state.voice.uploading = false;
+      cleanupVoiceState();
+      if (resolveStopPromise) resolveStopPromise();
+      state.voice.stopPromise = null;
+    }
   });
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -3724,7 +3778,14 @@ async function startVoiceRecording() {
 }
 
 async function stopVoiceRecording() {
-  if (!state.voice.recording) return;
+  if (!state.voice.recording) {
+    if (state.voice.uploadPromise) {
+      await state.voice.uploadPromise.catch(() => {
+        // Upload error already shown elsewhere.
+      });
+    }
+    return;
+  }
   state.voice.recording = false;
   updateVoiceButtonUi();
   if (state.voice.recognition) {
@@ -3735,11 +3796,23 @@ async function stopVoiceRecording() {
     }
   }
   if (state.voice.mediaRecorder && state.voice.mediaRecorder.state !== "inactive") {
+    if (typeof state.voice.mediaRecorder.requestData === "function") {
+      try {
+        state.voice.mediaRecorder.requestData();
+      } catch (_error) {
+        // noop
+      }
+    }
     state.voice.mediaRecorder.stop();
+    const stopPromise = state.voice.stopPromise;
+    if (stopPromise) {
+      await stopPromise.catch(() => {
+        // noop
+      });
+    }
   } else {
     cleanupVoiceState();
   }
-  scheduleComposerCollapse(180);
 }
 
 function cleanupVoiceState() {
@@ -3754,6 +3827,7 @@ function cleanupVoiceState() {
   state.voice.chunks = [];
   state.voice.interimTranscript = "";
   state.voice.recording = false;
+  state.voice.stopPromise = null;
   updateVoiceButtonUi();
   scheduleComposerCollapse(180);
 }
@@ -3764,7 +3838,7 @@ async function uploadVoiceBlob(blob, transcript) {
     method: "POST",
     body: {
       dataUrl,
-      fileName: `voice-${Date.now()}.webm`,
+      fileName: `voice-${Date.now()}${voiceFileExtByMime(blob.type)}`,
       mimeType: blob.type || "audio/webm",
       metadata: {
         transcriptPreview: transcript.slice(0, 256),
@@ -3779,6 +3853,38 @@ async function uploadVoiceBlob(blob, transcript) {
   };
   renderPendingVoice();
   setStatusKey("status.voiceSaved");
+}
+
+function pickPreferredVoiceMimeType() {
+  if (
+    typeof window.MediaRecorder !== "function" ||
+    typeof window.MediaRecorder.isTypeSupported !== "function"
+  ) {
+    return "";
+  }
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+  ];
+  for (const mime of candidates) {
+    if (window.MediaRecorder.isTypeSupported(mime)) {
+      return mime;
+    }
+  }
+  return "";
+}
+
+function voiceFileExtByMime(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("webm")) return ".webm";
+  if (mime.includes("mp4")) return ".m4a";
+  if (mime.includes("ogg")) return ".ogg";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return ".mp3";
+  if (mime.includes("wav")) return ".wav";
+  return ".audio";
 }
 
 function renderPendingVoice() {

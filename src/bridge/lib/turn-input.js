@@ -58,10 +58,32 @@ function buildTurnInput(body, mediaSvc) {
 
   const input = [];
   const text = (body.text || "").trim();
-  const voiceTranscript = (body.voiceTranscript || "").trim();
+  let voice = null;
+  let voiceId = "";
+  if (body.voiceMediaId) {
+    voiceId = String(body.voiceMediaId);
+    const maybeVoice = mediaSvc.getById(voiceId);
+    if (maybeVoice && maybeVoice.kind === "voice") {
+      voice = maybeVoice;
+      linkMediaIds.push(voiceId);
+    }
+  }
+
+  const voiceTranscriptRaw = (body.voiceTranscript || "").trim();
+  const voiceTranscriptPreview =
+    voice &&
+    voice.metadata &&
+    typeof voice.metadata === "object" &&
+    voice.metadata.transcriptPreview
+      ? String(voice.metadata.transcriptPreview).trim()
+      : "";
+  const voiceTranscript = voiceTranscriptRaw || voiceTranscriptPreview;
   const textBlocks = [];
   if (text) textBlocks.push(text);
   if (voiceTranscript) textBlocks.push(`[语音转写]\n${voiceTranscript}`);
+  if (!text && !voiceTranscript && voice) {
+    textBlocks.push("[Voice message attached. Transcript unavailable.]");
+  }
   if (textBlocks.length > 0) {
     input.push({
       type: "text",
@@ -101,14 +123,6 @@ function buildTurnInput(body, mediaSvc) {
     });
   }
 
-  if (body.voiceMediaId) {
-    const voiceId = String(body.voiceMediaId);
-    const voice = mediaSvc.getById(voiceId);
-    if (voice && voice.kind === "voice") {
-      linkMediaIds.push(voiceId);
-    }
-  }
-
   return {
     input: sanitizeUserInputArray(input),
     linkMediaIds,
@@ -119,4 +133,3 @@ module.exports = {
   buildTurnInput,
   sanitizeUserInputArray,
 };
-
