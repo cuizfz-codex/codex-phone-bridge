@@ -1208,17 +1208,17 @@ dialog::backdrop {
     flex-direction: column;
     align-items: flex-start;
     justify-content: flex-start;
-    gap: 4px;
+    gap: 6px;
     width: fit-content;
   }
 
   .composer-actions .btn {
-    width: 70px;
-    min-width: 70px;
-    min-height: 32px;
-    padding: 0 8px;
-    font-size: 0.8rem;
-    line-height: 1.2;
+    width: 84px;
+    min-width: 84px;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 0.84rem;
+    line-height: 1.18;
     white-space: nowrap;
   }
 
@@ -1296,7 +1296,7 @@ dialog::backdrop {
       "actions input"
       "attachments attachments";
     align-items: stretch;
-    column-gap: 8px;
+    column-gap: 10px;
     row-gap: 6px;
   }
 
@@ -1335,9 +1335,9 @@ dialog::backdrop {
     align-self: stretch;
     display: grid;
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 0;
-    width: 68px;
-    min-width: 68px;
+    gap: 6px;
+    width: 96px;
+    min-width: 96px;
     height: 100%;
   }
 
@@ -1346,7 +1346,10 @@ dialog::backdrop {
     min-width: 0;
     min-height: 0;
     height: auto;
-    padding: 0 6px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    font-weight: 650;
+    line-height: 1.15;
   }
 
   .mobile-compact-mode .attachments {
