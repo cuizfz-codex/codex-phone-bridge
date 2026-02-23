@@ -33,6 +33,7 @@ TLS_KEY_FILE="${TLS_KEY_FILE:-}"
 TLS_CA_FILE="${TLS_CA_FILE:-}"
 TLS_HOSTNAME="${TLS_HOSTNAME:-}"
 TLS_INSECURE_SKIP_VERIFY="${TLS_INSECURE_SKIP_VERIFY:-0}"
+QR_READY="1"
 
 if [[ "${HTTPS_ENABLED}" != "1" ]]; then
   echo "ERROR: HTTPS is required. Set HTTPS_ENABLED=1."
@@ -261,6 +262,17 @@ build_setup_url_from_base() {
   printf "%s/?base=%s\n" "${base}" "${encoded_base}"
 }
 
+ensure_qrcode_module() {
+  if (cd "${ROOT_DIR}" && node -e 'require.resolve("qrcode")' >/dev/null 2>&1); then
+    return 0
+  fi
+  echo "Installing missing dependency: qrcode ..."
+  if ! (cd "${ROOT_DIR}" && npm install --no-fund --no-audit qrcode); then
+    return 1
+  fi
+  (cd "${ROOT_DIR}" && node -e 'require.resolve("qrcode")' >/dev/null 2>&1)
+}
+
 wait_for_health() {
   local retries=40
   local i
@@ -320,7 +332,7 @@ render_setup_qr() {
   local url="$1"
   local output_file="$2"
 
-  node - "${url}" "${output_file}" <<'NODE'
+  (cd "${ROOT_DIR}" && node - "${url}" "${output_file}" <<'NODE'
 const QRCode = require("qrcode");
 
 const text = String(process.argv[2] || "");
@@ -347,6 +359,7 @@ run().catch((error) => {
   process.exit(1);
 });
 NODE
+  )
 }
 
 show_mobile_bootstrap() {
@@ -355,7 +368,9 @@ show_mobile_bootstrap() {
   local qr_file="${RUNTIME_DIR}/phone-codex-mobile-setup-qr.png"
 
   echo "Setup URL : ${setup_url}"
-  if render_setup_qr "${setup_url}" "${qr_file}"; then
+  if [[ "${QR_READY}" != "1" ]]; then
+    echo "Setup QR  : unavailable (qrcode dependency is not ready)"
+  elif render_setup_qr "${setup_url}" "${qr_file}"; then
     echo "Setup QR  : ${qr_file}"
     open "${qr_file}" >/dev/null 2>&1 || true
   else
@@ -364,6 +379,22 @@ show_mobile_bootstrap() {
 
   open "${setup_url}" >/dev/null 2>&1 || true
 }
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node is not installed or not in PATH."
+  read -r -p "Press Enter to close..."
+  exit 1
+fi
+
+if [[ ! -d "${ROOT_DIR}/node_modules" ]]; then
+  echo "Installing dependencies (first run only)..."
+  (cd "${ROOT_DIR}" && npm install)
+fi
+
+if ! ensure_qrcode_module; then
+  QR_READY="0"
+  echo "WARN: qrcode dependency is unavailable; setup QR will be skipped."
+fi
 
 if [[ -f "${PID_FILE}" ]]; then
   OLD_PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
@@ -392,17 +423,6 @@ if [[ -n "${LISTENING_PIDS}" ]]; then
   echo "${LISTENING_PIDS}" | xargs -n1 ps -p 2>/dev/null || true
   read -r -p "Press Enter to close..."
   exit 1
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "ERROR: node is not installed or not in PATH."
-  read -r -p "Press Enter to close..."
-  exit 1
-fi
-
-if [[ ! -d "${ROOT_DIR}/node_modules" ]]; then
-  echo "Installing dependencies (first run only)..."
-  (cd "${ROOT_DIR}" && npm install)
 fi
 
 echo "Starting phone-codex..."
