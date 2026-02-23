@@ -1014,14 +1014,42 @@ select:focus-visible {
 }
 
 .composer-actions .btn {
-  width: 74px;
-  min-width: 74px;
-  min-height: 36px;
-  padding: 0 10px;
-  font-size: 0.86rem;
+  width: 58px;
+  min-width: 58px;
+  min-height: 42px;
+  padding: 0;
+  font-size: 0;
+  line-height: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+  text-indent: -9999px;
+  border-radius: 12px;
+}
+
+.composer-actions .btn::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  opacity: 0.96;
+  pointer-events: none;
+}
+
+#pick-image-btn::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.2' y='4.2' width='17.6' height='15.6' rx='2.6'/%3E%3Ccircle cx='9' cy='10' r='1.7'/%3E%3Cpath d='M4.8 16.8l4.9-4.9a1.2 1.2 0 0 1 1.7 0l2.7 2.7 2.4-2.4a1.2 1.2 0 0 1 1.7 0l1.8 1.8'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.2' y='4.2' width='17.6' height='15.6' rx='2.6'/%3E%3Ccircle cx='9' cy='10' r='1.7'/%3E%3Cpath d='M4.8 16.8l4.9-4.9a1.2 1.2 0 0 1 1.7 0l2.7 2.7 2.4-2.4a1.2 1.2 0 0 1 1.7 0l1.8 1.8'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+#send-btn::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M3 11.6 21 3l-6.2 18-3.6-7.1L3 11.6Zm8.8 1.1 2.3 4.5L18 6.2l-9.3 5 3.1 1.5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M3 11.6 21 3l-6.2 18-3.6-7.1L3 11.6Zm8.8 1.1 2.3 4.5L18 6.2l-9.3 5 3.1 1.5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 
 .empty {
@@ -1213,12 +1241,12 @@ dialog::backdrop {
   }
 
   .composer-actions .btn {
-    width: 84px;
-    min-width: 84px;
-    min-height: 34px;
-    padding: 0 10px;
-    font-size: 0.84rem;
-    line-height: 1.18;
+    width: 92px;
+    min-width: 92px;
+    min-height: 40px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
     white-space: nowrap;
   }
 
@@ -1335,9 +1363,9 @@ dialog::backdrop {
     align-self: stretch;
     display: grid;
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    width: 96px;
-    min-width: 96px;
+    gap: 8px;
+    width: 112px;
+    min-width: 112px;
     height: 100%;
   }
 
@@ -1346,10 +1374,14 @@ dialog::backdrop {
     min-width: 0;
     min-height: 0;
     height: auto;
-    padding: 0 10px;
-    font-size: 0.88rem;
-    font-weight: 650;
-    line-height: 1.15;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+  }
+
+  .mobile-compact-mode .composer-actions .btn::before {
+    width: 30px;
+    height: 30px;
   }
 
   .mobile-compact-mode .attachments {
