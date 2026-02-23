@@ -34,6 +34,7 @@ TLS_CA_FILE="${TLS_CA_FILE:-}"
 TLS_HOSTNAME="${TLS_HOSTNAME:-}"
 TLS_INSECURE_SKIP_VERIFY="${TLS_INSECURE_SKIP_VERIFY:-0}"
 QR_READY="1"
+TAILSCALE_CERT_ERROR=""
 
 if [[ "${HTTPS_ENABLED}" != "1" ]]; then
   echo "ERROR: HTTPS is required. Set HTTPS_ENABLED=1."
@@ -99,12 +100,17 @@ issue_tailscale_cert() {
   command -v tailscale >/dev/null 2>&1 || return 1
   local cert_file="${TLS_DIR}/${host}.crt"
   local key_file="${TLS_DIR}/${host}.key"
-  if tailscale cert --cert-file "${cert_file}" --key-file "${key_file}" "${host}" >/dev/null 2>&1; then
+  local tailscale_output=""
+  if tailscale_output="$(
+    tailscale cert --cert-file "${cert_file}" --key-file "${key_file}" "${host}" 2>&1
+  )"; then
     TLS_CERT_FILE="${cert_file}"
     TLS_KEY_FILE="${key_file}"
     TLS_HOSTNAME="${host}"
+    TAILSCALE_CERT_ERROR=""
     return 0
   fi
+  TAILSCALE_CERT_ERROR="${tailscale_output}"
   return 1
 }
 
@@ -181,6 +187,9 @@ prepare_tls_material() {
         return 0
       fi
       echo "ERROR: Failed to issue tailscale cert. Ensure tailscale is connected and MagicDNS is available."
+      if [[ -n "${TAILSCALE_CERT_ERROR}" ]]; then
+        echo "tailscale cert output: ${TAILSCALE_CERT_ERROR}"
+      fi
       return 1
       ;;
     self-signed)
@@ -193,6 +202,10 @@ prepare_tls_material() {
     auto|*)
       if issue_tailscale_cert "${TLS_HOSTNAME:-${TAILSCALE_DNS}}"; then
         return 0
+      fi
+      if [[ -n "${TAILSCALE_CERT_ERROR}" ]]; then
+        echo "WARN: tailscale cert unavailable, fallback to self-signed TLS."
+        echo "      tailscale cert output: ${TAILSCALE_CERT_ERROR}"
       fi
       if issue_self_signed_cert; then
         return 0
@@ -348,17 +361,33 @@ const text = String(process.argv[2] || "");
 const outputPath = String(process.argv[3] || "");
 
 async function run() {
-  const terminal = await QRCode.toString(text, {
-    type: "terminal",
-    small: false,
-    errorCorrectionLevel: "H",
-  });
-  process.stdout.write(terminal + "\n");
+  const qr = QRCode.create(text, { errorCorrectionLevel: "H" });
+  const modules = qr.modules;
+  const size = modules.size;
+  const margin = 2;
+  const lines = [];
+  const isDark = (x, y) => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return false;
+    return modules.get(x, y);
+  };
+  for (let y = -margin; y < size + margin; y += 2) {
+    let line = "";
+    for (let x = -margin; x < size + margin; x += 1) {
+      const top = isDark(x, y);
+      const bottom = isDark(x, y + 1);
+      if (top && bottom) line += "█";
+      else if (top) line += "▀";
+      else if (bottom) line += "▄";
+      else line += " ";
+    }
+    lines.push(line);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
   if (outputPath) {
     await QRCode.toFile(outputPath, text, {
       type: "png",
       margin: 4,
-      scale: 12,
+      scale: 10,
       errorCorrectionLevel: "H",
     });
   }
@@ -376,6 +405,11 @@ show_mobile_bootstrap() {
   local setup_url
   setup_url="$(pick_setup_url)"
   local qr_file="${RUNTIME_DIR}/phone-codex-mobile-setup-qr.png"
+
+  if [[ "${TLS_INSECURE_SKIP_VERIFY}" == "1" ]]; then
+    echo "Cert Note: self-signed certificate in use; first visit may show NET::ERR_CERT_AUTHORITY_INVALID."
+    echo "           To remove warning, provide a trusted cert via TLS_MODE=custom."
+  fi
 
   echo "Setup URL : ${setup_url}"
   if [[ "${QR_READY}" != "1" ]]; then
