@@ -308,12 +308,16 @@ wait_for_health() {
 }
 
 pick_open_url() {
-  if [[ -n "${TAILSCALE_DNS}" ]]; then
-    printf "%s\n" "${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
-    return
-  fi
   if [[ -n "${LAN_IPV4}" ]]; then
     printf "%s\n" "${URL_SCHEME}://${LAN_IPV4}:${PORT}"
+    return
+  fi
+  if [[ -n "${TAILSCALE_IPV4}" ]]; then
+    printf "%s\n" "${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}"
+    return
+  fi
+  if [[ -n "${TAILSCALE_DNS}" ]]; then
+    printf "%s\n" "${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
     return
   fi
   printf "%s\n" "${URL_SCHEME}://127.0.0.1:${PORT}"

@@ -224,13 +224,30 @@ phone-codex 支持“局域网 + Tailscale 外网访问”并行使用，默认�
 
 启动成功后，脚本会输出并自动打开：
 - `Local URL / Phone URL / Tailscale / MagicDNS`
-- `Setup URL`（带 `?base=...` 预配置参数）
+- `Setup URL`（短链接，扫码更稳定）
 - `Setup QR`（二维码图片），手机相机扫码即可打开已预配置的网页端
 
 说明：
-- 同局域网优先使用 `Phone URL`（`Init LAN`）。
-- 外网优先使用 `MagicDNS`（`Init DNS`，需手机已连接 Tailscale）。
+- 同局域网优先使用 `Phone URL`（`Quick LAN`）。
+- 外网优先使用 `Tailscale IPv4` 或 `MagicDNS`（`Quick TSIP` / `Quick DNS`）。
 - 若使用自签证书，手机可能需要先信任证书后才能正常进入页面。
+
+### 去掉证书警告（推荐：`TLS_MODE=custom`）
+
+```bash
+cp launcher.env.custom.example launcher.env
+```
+
+只需编辑两个路径：
+- `TLS_CERT_FILE=/absolute/path/to/fullchain.pem`
+- `TLS_KEY_FILE=/absolute/path/to/privkey.pem`
+
+然后重新启动：
+
+```bash
+./Stop-Phone-Codex.command
+./Start-Phone-Codex.command
+```
 
 ## 开发与 CLI（Advanced）
 
