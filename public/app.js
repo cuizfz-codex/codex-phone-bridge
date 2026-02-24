@@ -1493,11 +1493,22 @@ function bindEvents() {
   if (elements.unlockThreadBtn) {
     elements.unlockThreadBtn.addEventListener("click", () => {
       if (!state.lockedThreadId) return;
+      const unlockedThreadId = String(state.lockedThreadId);
       state.lockedThreadId = null;
       localStorage.removeItem(storageKeys.lockedThreadId);
       applyLockedThreadUi();
       void connectEventSource();
-      loadThreads({ preserveSelection: true }).catch((error) => {
+      // Keep current thread focused if possible, otherwise fall back to the
+      // previously locked thread after the full list is restored.
+      if (!state.selectedThreadId && unlockedThreadId) {
+        state.selectedThreadId = unlockedThreadId;
+      }
+      queueListRefresh(
+        0,
+        { preserveSelection: true, silent: false },
+        { allowDuringTyping: true }
+      );
+      loadThreads({ preserveSelection: true, silent: false }).catch((error) => {
         setStatusKey("status.unlockLoadFailed", { error: asMessage(error) });
       });
       setStatusKey("status.unlocked");
@@ -1657,6 +1668,24 @@ function bindEvents() {
 
 function applyQueryBootstrap() {
   const params = new URLSearchParams(window.location.search);
+  const recognizedBootstrapParams = [
+    "base",
+    "token",
+    "pairing",
+    "pairingId",
+    "pairingCode",
+    "code",
+    "autoPair",
+    "autopair",
+    "threadId",
+    "thread",
+    "lockThreadId",
+    "lock",
+    "unlockThread",
+  ];
+  const hadBootstrapParams = recognizedBootstrapParams.some((key) =>
+    params.has(key)
+  );
   const base = params.get("base");
   const token = params.get("token");
   const pairingMode = params.get("pairing") === "1";
@@ -1718,7 +1747,7 @@ function applyQueryBootstrap() {
     sessionStorage.setItem(storageKeys.initialThreadId, threadId.trim());
     changed = true;
   }
-  if (changed) {
+  if (changed || hadBootstrapParams) {
     const clean = `${window.location.origin}${window.location.pathname}`;
     window.history.replaceState(null, "", clean);
   }
