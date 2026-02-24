@@ -1455,10 +1455,6 @@ function bindEvents() {
     });
   });
   elements.newThreadBtn.addEventListener("click", () => {
-    if (state.lockedThreadId) {
-      setStatusKey("status.newThreadLocked");
-      return;
-    }
     createThread().catch((error) => {
       setStatusKey("status.newThreadFailed", { error: asMessage(error) });
     });
@@ -1492,26 +1488,9 @@ function bindEvents() {
   });
   if (elements.unlockThreadBtn) {
     elements.unlockThreadBtn.addEventListener("click", () => {
-      if (!state.lockedThreadId) return;
-      const unlockedThreadId = String(state.lockedThreadId);
-      state.lockedThreadId = null;
-      localStorage.removeItem(storageKeys.lockedThreadId);
-      applyLockedThreadUi();
-      void connectEventSource();
-      // Keep current thread focused if possible, otherwise fall back to the
-      // previously locked thread after the full list is restored.
-      if (!state.selectedThreadId && unlockedThreadId) {
-        state.selectedThreadId = unlockedThreadId;
-      }
-      queueListRefresh(
-        0,
-        { preserveSelection: true, silent: false },
-        { allowDuringTyping: true }
-      );
-      loadThreads({ preserveSelection: true, silent: false }).catch((error) => {
+      clearThreadLock({ showStatus: true }).catch((error) => {
         setStatusKey("status.unlockLoadFailed", { error: asMessage(error) });
       });
-      setStatusKey("status.unlocked");
     });
   }
   if (elements.chat) {
@@ -3355,10 +3334,31 @@ async function submitApproval(requestId, decision) {
   setStatusKey("status.approvalSubmitted", { decision });
 }
 
+async function clearThreadLock(options = {}) {
+  const showStatus = options.showStatus !== false;
+  const lastLockedThreadId =
+    String(state.lockedThreadId || localStorage.getItem(storageKeys.lockedThreadId) || "").trim();
+  state.lockedThreadId = null;
+  localStorage.removeItem(storageKeys.lockedThreadId);
+  applyLockedThreadUi();
+  void connectEventSource();
+  if (!state.selectedThreadId && lastLockedThreadId) {
+    state.selectedThreadId = lastLockedThreadId;
+  }
+  queueListRefresh(
+    0,
+    { preserveSelection: true, silent: false },
+    { allowDuringTyping: true }
+  );
+  await loadThreads({ preserveSelection: true, silent: false });
+  if (showStatus) {
+    setStatusKey("status.unlocked");
+  }
+}
+
 async function createThread() {
   if (state.lockedThreadId) {
-    setStatusKey("status.newThreadLocked");
-    return;
+    await clearThreadLock({ showStatus: true });
   }
   // Prefer creating the thread within the currently expanded/selected project.
   // Otherwise Codex may default to "/" and the new thread becomes hard to find.
