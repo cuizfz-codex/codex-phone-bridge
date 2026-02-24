@@ -2740,7 +2740,15 @@ async function loadThreads(options = {}) {
           lockedThread = null;
         }
       }
-      state.threads = lockedThread ? [lockedThread] : [];
+      if (lockedThread) {
+        state.threads = [lockedThread];
+      } else {
+        // Stale lock id can silently disable "New Thread" forever on mobile.
+        // Auto-clear it when the locked thread is no longer accessible.
+        state.lockedThreadId = null;
+        localStorage.removeItem(storageKeys.lockedThreadId);
+        applyLockedThreadUi();
+      }
     }
     state.projects = groupThreadsByProject(state.threads);
 
@@ -3326,10 +3334,22 @@ async function createThread() {
   // Prefer creating the thread within the currently expanded/selected project.
   // Otherwise Codex may default to "/" and the new thread becomes hard to find.
   const preferredCwd = resolvePreferredCwdForNewThread();
-  const data = await apiFetchJson("/api/v2/threads", {
-    method: "POST",
-    body: preferredCwd ? { cwd: preferredCwd } : {},
-  });
+  let data = null;
+  try {
+    data = await apiFetchJson("/api/v2/threads", {
+      method: "POST",
+      body: preferredCwd ? { cwd: preferredCwd } : {},
+    });
+  } catch (error) {
+    if (!preferredCwd || !isRecoverableCwdError(error)) {
+      throw error;
+    }
+    // If selected/expanded project path is stale, retry without cwd.
+    data = await apiFetchJson("/api/v2/threads", {
+      method: "POST",
+      body: {},
+    });
+  }
   const thread = data.thread;
   if (thread && thread.id) {
     await loadThreads({ preserveSelection: false });
@@ -3337,6 +3357,18 @@ async function createThread() {
   } else {
     await loadThreads({ preserveSelection: true });
   }
+}
+
+function isRecoverableCwdError(error) {
+  const msg = asMessage(error).toLowerCase();
+  return (
+    msg.includes("cwd") ||
+    msg.includes("enoent") ||
+    msg.includes("no such file") ||
+    msg.includes("directory") ||
+    msg.includes("invalid path") ||
+    msg.includes("invalid argument")
+  );
 }
 
 async function renameThread(threadId) {
