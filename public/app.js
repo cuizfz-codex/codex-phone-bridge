@@ -210,6 +210,8 @@ const I18N = {
     "status.refreshFailed": "刷新失败: {error}",
     "status.newThreadLocked": "已锁定单线程，不允许新建线程",
     "status.newThreadFailed": "新建失败: {error}",
+    "status.newThreadPendingRead":
+      "新线程已创建，正在同步，稍后会出现在列表中。",
     "status.searchFailed": "搜索失败: {error}",
     "status.filterFailed": "筛选失败: {error}",
     "status.unlockLoadFailed": "解除锁定后加载失败: {error}",
@@ -276,6 +278,8 @@ const I18N = {
     "tooltip.themeToggle": "切换浅色/深色主题",
     "status.prefix": "状态: {text}",
     "error.cannotDetermineThread": "无法确定 thread id",
+    "error.codexReloginRequired":
+      "桌面 Codex 登录已失效，请在电脑端 Codex 里重新登录后重试。",
     "error.deviceNotPaired": "当前设备未配对",
     "error.fileReader": "读取文件失败",
   },
@@ -384,6 +388,8 @@ const I18N = {
     "status.refreshFailed": "Refresh failed: {error}",
     "status.newThreadLocked": "Thread is locked. Creating a new thread is disabled.",
     "status.newThreadFailed": "Create failed: {error}",
+    "status.newThreadPendingRead":
+      "Thread created. Sync is still catching up; it will appear shortly.",
     "status.searchFailed": "Search failed: {error}",
     "status.filterFailed": "Filter failed: {error}",
     "status.unlockLoadFailed": "Reload after unlock failed: {error}",
@@ -450,6 +456,8 @@ const I18N = {
     "tooltip.themeToggle": "Switch Light / Dark theme",
     "status.prefix": "Status: {text}",
     "error.cannotDetermineThread": "Cannot determine thread id",
+    "error.codexReloginRequired":
+      "Desktop Codex login expired. Sign in again on desktop Codex, then retry.",
     "error.deviceNotPaired": "Device not paired",
     "error.fileReader": "FileReader failed",
   },
@@ -3357,34 +3365,63 @@ async function clearThreadLock(options = {}) {
 }
 
 async function createThread() {
-  if (state.lockedThreadId) {
-    await clearThreadLock({ showStatus: true });
+  if (elements.newThreadBtn) {
+    elements.newThreadBtn.disabled = true;
   }
-  // Prefer creating the thread within the currently expanded/selected project.
-  // Otherwise Codex may default to "/" and the new thread becomes hard to find.
-  const preferredCwd = resolvePreferredCwdForNewThread();
-  let data = null;
   try {
-    data = await apiFetchJson("/api/v2/threads", {
-      method: "POST",
-      body: preferredCwd ? { cwd: preferredCwd } : {},
-    });
-  } catch (error) {
-    if (!preferredCwd || !isRecoverableCwdError(error)) {
+    try {
+      if (state.lockedThreadId) {
+        await clearThreadLock({ showStatus: true });
+      }
+      // Prefer creating the thread within the currently expanded/selected project.
+      // Otherwise Codex may default to "/" and the new thread becomes hard to find.
+      const preferredCwd = resolvePreferredCwdForNewThread();
+      let data = null;
+      try {
+        data = await apiFetchJson("/api/v2/threads", {
+          method: "POST",
+          body: preferredCwd ? { cwd: preferredCwd } : {},
+        });
+      } catch (error) {
+        if (isCodexReloginRequiredError(error)) {
+          throw new Error(t("error.codexReloginRequired"));
+        }
+        if (!preferredCwd || !isRecoverableCwdError(error)) {
+          throw error;
+        }
+        // If selected/expanded project path is stale, retry without cwd.
+        data = await apiFetchJson("/api/v2/threads", {
+          method: "POST",
+          body: {},
+        });
+      }
+      const thread = data.thread;
+      if (thread && thread.id) {
+        const createdThreadId = String(thread.id);
+        await loadThreads({ preserveSelection: false });
+        try {
+          await selectThreadWithRetry(createdThreadId, {
+            attempts: 5,
+            baseDelayMs: 160,
+          });
+        } catch (error) {
+          if (!isRecoverableThreadSelectionError(error)) {
+            throw error;
+          }
+          await loadThreads({ preserveSelection: true });
+          setStatusKey("status.newThreadPendingRead");
+        }
+      } else {
+        await loadThreads({ preserveSelection: true });
+      }
+    } catch (error) {
+      if (isCodexReloginRequiredError(error)) {
+        throw new Error(t("error.codexReloginRequired"));
+      }
       throw error;
     }
-    // If selected/expanded project path is stale, retry without cwd.
-    data = await apiFetchJson("/api/v2/threads", {
-      method: "POST",
-      body: {},
-    });
-  }
-  const thread = data.thread;
-  if (thread && thread.id) {
-    await loadThreads({ preserveSelection: false });
-    await selectThread(thread.id);
-  } else {
-    await loadThreads({ preserveSelection: true });
+  } finally {
+    applyLockedThreadUi();
   }
 }
 
@@ -3398,6 +3435,58 @@ function isRecoverableCwdError(error) {
     msg.includes("invalid path") ||
     msg.includes("invalid argument")
   );
+}
+
+function isRecoverableThreadSelectionError(error) {
+  const msg = asMessage(error).toLowerCase();
+  return (
+    msg.includes("thread not found") ||
+    msg.includes("no thread found") ||
+    (msg.includes("thread") && msg.includes("not found")) ||
+    msg.includes("temporarily unavailable")
+  );
+}
+
+function isCodexReloginRequiredError(error) {
+  const msg = asMessage(error).toLowerCase();
+  return (
+    msg.includes("refresh_token_reused") ||
+    msg.includes("refresh token") ||
+    msg.includes("log out and sign in again") ||
+    msg.includes("sign in again") ||
+    msg.includes("access token could not be refreshed")
+  );
+}
+
+function delayMs(ms) {
+  const duration = Math.max(0, Number(ms) || 0);
+  return new Promise((resolve) => {
+    setTimeout(resolve, duration);
+  });
+}
+
+async function selectThreadWithRetry(threadId, options = {}) {
+  const attempts = Math.max(1, Number(options.attempts) || 1);
+  const baseDelayMs = Math.max(50, Number(options.baseDelayMs) || 120);
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await selectThread(threadId);
+      return;
+    } catch (error) {
+      if (isCodexReloginRequiredError(error)) {
+        throw new Error(t("error.codexReloginRequired"));
+      }
+      if (!isRecoverableThreadSelectionError(error)) {
+        throw error;
+      }
+      lastError = error;
+      if (attempt + 1 < attempts) {
+        await delayMs(baseDelayMs * (attempt + 1));
+      }
+    }
+  }
+  if (lastError) throw lastError;
 }
 
 async function renameThread(threadId) {
