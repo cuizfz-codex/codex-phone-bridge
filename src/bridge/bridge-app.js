@@ -147,6 +147,7 @@ const THREAD_USAGE_TAIL_WINDOWS = [
 const CODEX_STATE_ROOT = path.resolve(
   process.env.CODEX_HOME || path.join(os.homedir(), ".codex")
 );
+const CODEX_GLOBAL_STATE_FILE = path.join(CODEX_STATE_ROOT, ".codex-global-state.json");
 const CODEX_STATE_DB_FILE = path.join(CODEX_STATE_ROOT, "state_5.sqlite");
 const THREAD_TITLE_CACHE_TTL_MS = parseInteger(
   process.env.THREAD_TITLE_CACHE_TTL_MS,
@@ -165,6 +166,11 @@ const THREAD_TITLE_QUERY_MAX_BUFFER = 1024 * 1024 * 4;
 const threadTitleById = new Map();
 let threadTitleCacheExpiresAt = 0;
 let threadTitleCacheDbMtimeMs = 0;
+const globalStateThreadTitleById = new Map();
+const globalStateWorkspaceLabelByPath = new Map();
+const globalStateWorkspaceLabelByPathLower = new Map();
+let globalStateCacheExpiresAt = 0;
+let globalStateCacheMtimeMs = 0;
 
 function parseAllowedClientCidrs(value, fallback) {
   const source = String(value || "").trim();
@@ -1550,36 +1556,98 @@ async function decorateThreadListWithTitles(threads) {
       thread && typeof thread === "object" && thread.id ? String(thread.id).trim() : ""
     )
     .filter(Boolean);
-  const titleRows = await resolveThreadTitleRows(ids);
-  if (titleRows.size === 0) return threads;
+  const globalMetadata = await resolveGlobalStateThreadMetadata();
+  const missingForSqlite = ids.filter((id) => !globalMetadata.threadTitleById.has(id));
+  const titleRows = await resolveThreadTitleRows(missingForSqlite);
   return threads.map((thread) => {
     const id = thread && thread.id ? String(thread.id) : "";
-    return applyThreadTitleDecoration(thread, titleRows.get(id) || null);
+    return applyThreadTitleDecoration(thread, {
+      globalTitle: globalMetadata.threadTitleById.get(id) || "",
+      titleRow: titleRows.get(id) || null,
+      workspaceLabel: resolveWorkspaceLabelForThread(thread, globalMetadata),
+    });
   });
 }
 
 async function decorateThreadWithTitle(thread) {
   if (!thread || typeof thread !== "object" || !thread.id) return thread;
-  const rows = await resolveThreadTitleRows([String(thread.id)]);
-  return applyThreadTitleDecoration(thread, rows.get(String(thread.id)) || null);
+  const threadId = String(thread.id);
+  const globalMetadata = await resolveGlobalStateThreadMetadata();
+  let titleRow = null;
+  if (!globalMetadata.threadTitleById.has(threadId)) {
+    const rows = await resolveThreadTitleRows([threadId]);
+    titleRow = rows.get(threadId) || null;
+  }
+  return applyThreadTitleDecoration(thread, {
+    globalTitle: globalMetadata.threadTitleById.get(threadId) || "",
+    titleRow,
+    workspaceLabel: resolveWorkspaceLabelForThread(thread, globalMetadata),
+  });
 }
 
-function applyThreadTitleDecoration(thread, titleRow) {
-  if (!thread || typeof thread !== "object" || !titleRow) return thread;
-  const title = normalizeThreadTitleText(titleRow.title);
-  if (!title) return thread;
-  const firstUserMessage = normalizeThreadTitleText(
-    titleRow.firstUserMessage || titleRow.first_user_message
+function resolveWorkspaceLabelForThread(thread, metadata) {
+  if (!thread || typeof thread !== "object") return "";
+  const existingLabel = normalizeThreadTitleText(
+    thread.projectName || thread.workspaceLabel || thread.workspaceName
   );
-  const next = {
-    ...thread,
-    title,
-    displayName: title,
-  };
-  if (firstUserMessage && !next.firstUserMessage) {
-    next.firstUserMessage = firstUserMessage;
+  if (existingLabel) return existingLabel;
+  const cwdKey = normalizeWorkspacePath(thread.cwd || thread.path);
+  if (!cwdKey) return "";
+  const exact = metadata.workspaceLabelByPath.get(cwdKey);
+  if (exact) return exact;
+  return metadata.workspaceLabelByPathLower.get(cwdKey.toLowerCase()) || "";
+}
+
+function applyThreadTitleDecoration(thread, metadata = {}) {
+  if (!thread || typeof thread !== "object") return thread;
+  const titleRow =
+    metadata.titleRow && typeof metadata.titleRow === "object" ? metadata.titleRow : null;
+  const existingTitle = normalizeThreadTitleText(
+    thread.displayName || thread.title || thread.name
+  );
+  const globalTitle = normalizeThreadTitleText(metadata.globalTitle);
+  const sqliteTitle = normalizeThreadTitleText(titleRow && titleRow.title);
+  const title = existingTitle || globalTitle || sqliteTitle;
+  const firstUserMessage = normalizeThreadTitleText(
+    (titleRow && (titleRow.firstUserMessage || titleRow.first_user_message)) ||
+      thread.firstUserMessage
+  );
+  const workspaceLabel = normalizeThreadTitleText(metadata.workspaceLabel);
+
+  let changed = false;
+  const next = { ...thread };
+
+  if (title) {
+    if (normalizeThreadTitleText(next.title) !== title) {
+      next.title = title;
+      changed = true;
+    }
+    if (normalizeThreadTitleText(next.displayName) !== title) {
+      next.displayName = title;
+      changed = true;
+    }
+    if (normalizeThreadTitleText(next.name) !== title) {
+      next.name = title;
+      changed = true;
+    }
   }
-  return next;
+
+  if (workspaceLabel) {
+    if (normalizeThreadTitleText(next.workspaceLabel) !== workspaceLabel) {
+      next.workspaceLabel = workspaceLabel;
+      changed = true;
+    }
+    if (normalizeThreadTitleText(next.projectName) !== workspaceLabel) {
+      next.projectName = workspaceLabel;
+      changed = true;
+    }
+  }
+
+  if (firstUserMessage && !normalizeThreadTitleText(next.firstUserMessage)) {
+    next.firstUserMessage = firstUserMessage;
+    changed = true;
+  }
+  return changed ? next : thread;
 }
 
 function normalizeThreadTitleText(value) {
@@ -1588,6 +1656,89 @@ function normalizeThreadTitleText(value) {
     .replace(/\s{2,}/g, " ")
     .trim();
   return text;
+}
+
+function normalizeWorkspacePath(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const cleaned = text.replace(/[\\/]+$/g, "");
+  return cleaned || text;
+}
+
+async function resolveGlobalStateThreadMetadata() {
+  let fileStat = null;
+  try {
+    fileStat = await fsp.stat(CODEX_GLOBAL_STATE_FILE);
+  } catch {
+    return {
+      threadTitleById: globalStateThreadTitleById,
+      workspaceLabelByPath: globalStateWorkspaceLabelByPath,
+      workspaceLabelByPathLower: globalStateWorkspaceLabelByPathLower,
+    };
+  }
+  if (!fileStat || !fileStat.isFile()) {
+    return {
+      threadTitleById: globalStateThreadTitleById,
+      workspaceLabelByPath: globalStateWorkspaceLabelByPath,
+      workspaceLabelByPathLower: globalStateWorkspaceLabelByPathLower,
+    };
+  }
+
+  const now = Date.now();
+  const mtimeMs = Number(fileStat.mtimeMs || 0);
+  const cacheExpired = now >= globalStateCacheExpiresAt;
+  const fileChanged = mtimeMs !== globalStateCacheMtimeMs;
+  if (cacheExpired || fileChanged) {
+    globalStateThreadTitleById.clear();
+    globalStateWorkspaceLabelByPath.clear();
+    globalStateWorkspaceLabelByPathLower.clear();
+    globalStateCacheMtimeMs = mtimeMs;
+
+    try {
+      const raw = await fsp.readFile(CODEX_GLOBAL_STATE_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      const threadTitles =
+        parsed &&
+        parsed["thread-titles"] &&
+        parsed["thread-titles"].titles &&
+        typeof parsed["thread-titles"].titles === "object"
+          ? parsed["thread-titles"].titles
+          : null;
+      if (threadTitles) {
+        for (const [rawThreadId, rawTitle] of Object.entries(threadTitles)) {
+          const threadId = String(rawThreadId || "").trim();
+          const title = normalizeThreadTitleText(rawTitle);
+          if (!threadId || !title) continue;
+          globalStateThreadTitleById.set(threadId, title);
+        }
+      }
+
+      const workspaceLabels =
+        parsed &&
+        parsed["electron-workspace-root-labels"] &&
+        typeof parsed["electron-workspace-root-labels"] === "object"
+          ? parsed["electron-workspace-root-labels"]
+          : null;
+      if (workspaceLabels) {
+        for (const [rawPath, rawLabel] of Object.entries(workspaceLabels)) {
+          const pathKey = normalizeWorkspacePath(rawPath);
+          const label = normalizeThreadTitleText(rawLabel);
+          if (!pathKey || !label) continue;
+          globalStateWorkspaceLabelByPath.set(pathKey, label);
+          globalStateWorkspaceLabelByPathLower.set(pathKey.toLowerCase(), label);
+        }
+      }
+    } catch {
+      // Ignore parse/read failures and keep fallback behavior.
+    }
+    globalStateCacheExpiresAt = now + THREAD_TITLE_CACHE_TTL_MS;
+  }
+
+  return {
+    threadTitleById: globalStateThreadTitleById,
+    workspaceLabelByPath: globalStateWorkspaceLabelByPath,
+    workspaceLabelByPathLower: globalStateWorkspaceLabelByPathLower,
+  };
 }
 
 async function resolveThreadTitleRows(threadIds) {

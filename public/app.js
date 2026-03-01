@@ -3842,15 +3842,20 @@ function groupThreadsByProject(threads) {
   const map = new Map();
   for (const thread of threads || []) {
     const key = getProjectKey(thread);
+    const explicitProjectName = getThreadProjectName(thread);
     let group = map.get(key);
     if (!group) {
       group = {
         key,
-        name: getProjectName(key),
+        name: explicitProjectName || getProjectName(key),
+        hasExplicitName: Boolean(explicitProjectName),
         threads: [],
         lastUpdated: 0,
       };
       map.set(key, group);
+    } else if (explicitProjectName && !group.hasExplicitName) {
+      group.name = explicitProjectName;
+      group.hasExplicitName = true;
     }
     group.threads.push(thread);
     group.lastUpdated = Math.max(group.lastUpdated, Number(thread.updatedAt || 0));
@@ -3867,6 +3872,16 @@ function groupThreadsByProject(threads) {
 function getProjectKey(thread) {
   if (!thread || !thread.cwd) return "(unknown)";
   return String(thread.cwd);
+}
+
+function getThreadProjectName(thread) {
+  if (!thread || typeof thread !== "object") return "";
+  const candidates = [thread.projectName, thread.workspaceLabel, thread.workspaceName];
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 function resolvePreferredCwdForNewThread() {
