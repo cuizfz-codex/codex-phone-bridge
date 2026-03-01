@@ -2,6 +2,26 @@
 
 All notable changes to `phone-codex` will be documented in this file.
 
+## v1.0.0 - 2026-03-01
+
+### Added / Changed
+- Declared `v1.0.0` as the first stable release line.
+- Mobile thread list/header now prefer Codex-native thread titles from global state (user-renamed titles are reflected).
+- Mobile project grouping now prefers Codex workspace labels from global state instead of only deriving names from directory suffixes.
+- HTTPS launch/startup flow remains the default path, with QR bootstrap available from startup script output.
+
+---
+
+## v1.0.0 - 2026-03-01（中文）
+
+### 新增 / 变更
+- 正式发布 `v1.0.0`，作为稳定版本线。
+- 手机网页线程列表与线程标题优先使用 Codex 全局状态中的真实线程名（支持同步你手动改过的标题）。
+- 手机网页项目分组名称优先使用 Codex 全局状态中的工作区标签，不再只按目录名推导。
+- 继续沿用 HTTPS 默认启动路径，启动脚本保留二维码引导能力。
+
+---
+
 ## v0.3.7 - 2026-02-23
 
 ### Added / Changed

@@ -10,7 +10,7 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 
 这样新线程会先读取修改历史和交接重点，避免重复排查。
 
-## 更新说明 / Release Notes (v0.3.7)
+## 更新说明 / Release Notes (v1.0)
 
 ### 中文
 
@@ -18,6 +18,7 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 - 网页端输入能力为“文本 + 图片”，语音录制/上传已移除。
 - 手机网页发送区升级为图标化操作（图片/发送），并优化为紧凑布局。
 - 左侧栏布局已压缩：`新建 Thread + 刷新` 同行；`语言 + 主题` 同行展示。
+- 线程标题与项目分组名称已优先同步 Codex 的真实命名（含你在 Codex 中手动修改后的名称）。
 - 文档补充了中英文“最新使用说明”，并清理了仓库中的个人信息暴露风险项。
 
 ### English
@@ -26,6 +27,7 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 - The web composer supports text + image only; voice recording/upload has been removed.
 - Mobile web composer controls are icon-based (image/send) with a compact layout.
 - Sidebar layout is tightened: `New Thread + Refresh` are inline, and `Language + Theme` are shown side-by-side.
+- Thread titles and project group names now prefer Codex-native naming (including user-renamed titles).
 - Updated bilingual usage docs are included, and privacy-exposed strings were sanitized.
 
 ## 最新版本使用说明 / Latest Usage Guide
@@ -50,7 +52,7 @@ macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页�
 4. Composer uses icon controls (image on top, send below) and supports text + image.  
 5. If UI changes do not appear, force-refresh on phone (clear cache first).
 
-## 历史版本 / Previous (v0.3.5)
+## 历史版本 / Previous (v0.3.7)
 
 ### 中文
 
