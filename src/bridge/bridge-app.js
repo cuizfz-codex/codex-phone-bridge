@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
+const { execFile } = require("child_process");
 const { URL } = require("url");
 
 const { CodexAppServerClient } = require("../codex-rpc-client");
@@ -146,6 +147,24 @@ const THREAD_USAGE_TAIL_WINDOWS = [
 const CODEX_STATE_ROOT = path.resolve(
   process.env.CODEX_HOME || path.join(os.homedir(), ".codex")
 );
+const CODEX_STATE_DB_FILE = path.join(CODEX_STATE_ROOT, "state_5.sqlite");
+const THREAD_TITLE_CACHE_TTL_MS = parseInteger(
+  process.env.THREAD_TITLE_CACHE_TTL_MS,
+  3000,
+  500,
+  60000
+);
+const THREAD_TITLE_QUERY_TIMEOUT_MS = parseInteger(
+  process.env.THREAD_TITLE_QUERY_TIMEOUT_MS,
+  2500,
+  500,
+  15000
+);
+const THREAD_TITLE_QUERY_MAX_BUFFER = 1024 * 1024 * 4;
+
+const threadTitleById = new Map();
+let threadTitleCacheExpiresAt = 0;
+let threadTitleCacheDbMtimeMs = 0;
 
 function parseAllowedClientCidrs(value, fallback) {
   const source = String(value || "").trim();
@@ -715,9 +734,13 @@ async function handleV2Api(req, res, url, pathname) {
       query,
       sortKey: "updated_at",
     });
+    const dataWithTitle = await decorateThreadListWithTitles(
+      Array.isArray(result.data) ? result.data : []
+    );
     sendJson(res, 200, {
       ok: true,
       ...result,
+      data: dataWithTitle,
     });
     return;
   }
@@ -873,7 +896,9 @@ async function handleV2Api(req, res, url, pathname) {
     const includeTurns = parseOptionalBoolean(url.searchParams.get("includeTurns"));
     const include = includeTurns === null ? true : includeTurns;
     const thread = await threadSync.readThread(threadId, include);
-    const decorated = decorateThreadMedia(thread, mediaService);
+    const decorated = await decorateThreadWithTitle(
+      decorateThreadMedia(thread, mediaService)
+    );
     const usage = await resolveThreadUsageForThread(String(threadId), thread);
     sendJson(res, 200, {
       ok: true,
@@ -1516,6 +1541,154 @@ function maybeNudgeDesktopForNotification(notification) {
   if (!webTurns.has(key)) return;
   webTurns.delete(key);
   desktopNudge.request({ reason: "turn-completed", threadId, turnId });
+}
+
+async function decorateThreadListWithTitles(threads) {
+  if (!Array.isArray(threads) || threads.length === 0) return [];
+  const ids = threads
+    .map((thread) =>
+      thread && typeof thread === "object" && thread.id ? String(thread.id).trim() : ""
+    )
+    .filter(Boolean);
+  const titleRows = await resolveThreadTitleRows(ids);
+  if (titleRows.size === 0) return threads;
+  return threads.map((thread) => {
+    const id = thread && thread.id ? String(thread.id) : "";
+    return applyThreadTitleDecoration(thread, titleRows.get(id) || null);
+  });
+}
+
+async function decorateThreadWithTitle(thread) {
+  if (!thread || typeof thread !== "object" || !thread.id) return thread;
+  const rows = await resolveThreadTitleRows([String(thread.id)]);
+  return applyThreadTitleDecoration(thread, rows.get(String(thread.id)) || null);
+}
+
+function applyThreadTitleDecoration(thread, titleRow) {
+  if (!thread || typeof thread !== "object" || !titleRow) return thread;
+  const title = normalizeThreadTitleText(titleRow.title);
+  if (!title) return thread;
+  const firstUserMessage = normalizeThreadTitleText(
+    titleRow.firstUserMessage || titleRow.first_user_message
+  );
+  const next = {
+    ...thread,
+    title,
+    displayName: title,
+  };
+  if (firstUserMessage && !next.firstUserMessage) {
+    next.firstUserMessage = firstUserMessage;
+  }
+  return next;
+}
+
+function normalizeThreadTitleText(value) {
+  const text = String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return text;
+}
+
+async function resolveThreadTitleRows(threadIds) {
+  const ids = [...new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (ids.length === 0) return new Map();
+
+  let dbStat = null;
+  try {
+    dbStat = await fsp.stat(CODEX_STATE_DB_FILE);
+  } catch {
+    return new Map();
+  }
+  if (!dbStat || !dbStat.isFile()) return new Map();
+
+  const now = Date.now();
+  const dbMtimeMs = Number(dbStat.mtimeMs || 0);
+  const cacheExpired = now >= threadTitleCacheExpiresAt;
+  const dbChanged = dbMtimeMs !== threadTitleCacheDbMtimeMs;
+  if (cacheExpired || dbChanged) {
+    threadTitleById.clear();
+    threadTitleCacheDbMtimeMs = dbMtimeMs;
+  }
+
+  const missing = ids.filter((id) => !threadTitleById.has(id));
+  if (missing.length > 0) {
+    const rows = await queryThreadTitleRowsByIds(missing);
+    const rowById = new Map();
+    for (const row of rows) {
+      const id = row && row.id ? String(row.id).trim() : "";
+      if (!id) continue;
+      rowById.set(id, row);
+      threadTitleById.set(id, row);
+    }
+    for (const id of missing) {
+      if (!rowById.has(id)) {
+        // Cache negative lookup to avoid repeated sqlite calls in the same window.
+        threadTitleById.set(id, null);
+      }
+    }
+  }
+  threadTitleCacheExpiresAt = now + THREAD_TITLE_CACHE_TTL_MS;
+
+  const out = new Map();
+  for (const id of ids) {
+    const row = threadTitleById.get(id);
+    if (row && typeof row === "object") {
+      out.set(id, row);
+    }
+  }
+  return out;
+}
+
+async function queryThreadTitleRowsByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const inClause = ids.map((id) => sqlQuote(id)).join(", ");
+  const sql = [
+    "SELECT id, title, first_user_message AS firstUserMessage",
+    "FROM threads",
+    `WHERE id IN (${inClause});`,
+  ].join(" ");
+  let stdout = "";
+  try {
+    stdout = await execFileUtf8(
+      "sqlite3",
+      ["-readonly", "-json", CODEX_STATE_DB_FILE, sql],
+      {
+        timeout: THREAD_TITLE_QUERY_TIMEOUT_MS,
+        maxBuffer: THREAD_TITLE_QUERY_MAX_BUFFER,
+      }
+    );
+  } catch {
+    return [];
+  }
+  if (!stdout.trim()) return [];
+  try {
+    const parsed = JSON.parse(stdout);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function sqlQuote(value) {
+  return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+function execFileUtf8(file, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) {
+        const details = String(stderr || "").trim();
+        if (details) {
+          reject(new Error(`${error.message}: ${details}`));
+          return;
+        }
+        reject(error);
+        return;
+      }
+      resolve(String(stdout || ""));
+    });
+  });
 }
 
 function normalizeLegacyTokenUsage(msg) {

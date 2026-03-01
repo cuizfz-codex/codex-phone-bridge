@@ -451,6 +451,9 @@ function matchesThreadQuery(thread, query) {
   if (!query) return true;
   const haystack = [
     thread.id,
+    thread.displayName,
+    thread.title,
+    thread.firstUserMessage,
     thread.preview,
     thread.cwd,
     thread.modelProvider,
@@ -478,6 +481,8 @@ function threadSignature(thread) {
   return JSON.stringify({
     id: thread.id,
     updatedAt: thread.updatedAt,
+    title: thread.title,
+    displayName: thread.displayName,
     preview: thread.preview,
     turns: turnSig,
   });

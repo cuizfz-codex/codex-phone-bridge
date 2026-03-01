@@ -2957,7 +2957,7 @@ function renderThreadList() {
 
         const title = document.createElement("div");
         title.className = "thread-preview";
-        title.textContent = thread.preview || t("thread.emptyPreview");
+        title.textContent = getThreadListLabel(thread);
 
         const meta = document.createElement("div");
         meta.className = "thread-meta";
@@ -3008,6 +3008,24 @@ function actionButton(label, action, threadId) {
   return button;
 }
 
+function getThreadDisplayName(thread) {
+  if (!thread || typeof thread !== "object") return "";
+  const candidates = [thread.displayName, thread.title, thread.name];
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function getThreadListLabel(thread) {
+  const displayName = getThreadDisplayName(thread);
+  if (displayName) return displayName;
+  const preview = String((thread && thread.preview) || "").trim();
+  if (preview) return preview;
+  return t("thread.emptyPreview");
+}
+
 function renderCurrentThread() {
   const thread = state.selectedThread;
   const viewport = captureChatViewport();
@@ -3024,7 +3042,10 @@ function renderCurrentThread() {
     return;
   }
 
-  const titleText = thread.preview
+  const displayName = getThreadDisplayName(thread);
+  const titleText = displayName
+    ? displayName.slice(0, 56)
+    : thread.preview
     ? thread.preview.slice(0, 56)
     : t("thread.titleWithId", { id: thread.id.slice(0, 8) });
   elements.threadTitle.textContent = titleText;
@@ -3491,7 +3512,9 @@ async function selectThreadWithRetry(threadId, options = {}) {
 
 async function renameThread(threadId) {
   const item = state.threads.find((t) => t.id === threadId);
-  const initial = item && item.preview ? item.preview.slice(0, 64) : "";
+  const initialName = getThreadDisplayName(item);
+  const fallbackPreview = item && item.preview ? String(item.preview).trim() : "";
+  const initial = (initialName || fallbackPreview).slice(0, 64);
   const name = window.prompt(t("prompt.renameThread"), initial);
   if (!name || !name.trim()) return;
   await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/name`, {
