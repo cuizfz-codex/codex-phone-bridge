@@ -70,6 +70,38 @@ test("DesktopIpcMonitor applies patch updates to clear running state", () => {
   assert.equal(monitor.getThreadRuntimeState("thread-1").running, false);
 });
 
+test("DesktopIpcMonitor clears running from terminal patches without snapshot", () => {
+  const monitor = new DesktopIpcMonitor({ enabled: false });
+  monitor.threadStateById.set("thread-1", {
+    threadId: "thread-1",
+    ownerClientId: "desktop-client-1",
+    conversationState: null,
+    running: true,
+    updatedAt: new Date().toISOString(),
+  });
+  monitor.handleFrame({
+    type: "broadcast",
+    method: "thread-stream-state-changed",
+    sourceClientId: "desktop-client-1",
+    params: {
+      conversationId: "thread-1",
+      change: {
+        type: "patches",
+        patches: [
+          {
+            op: "replace",
+            path: ["turns", 0, "status"],
+            value: "completed",
+          },
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual([...monitor.getRunningThreadIds()], []);
+  assert.equal(monitor.getThreadRuntimeState("thread-1").running, false);
+});
+
 test("DesktopIpcMonitor treats incomplete requests as active", () => {
   assert.equal(
     _test.isConversationStateRunning({

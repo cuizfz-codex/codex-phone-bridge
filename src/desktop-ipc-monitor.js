@@ -227,13 +227,15 @@ class DesktopIpcMonitor extends EventEmitter {
       }
     }
 
-    const patchRunning =
+    const patchRunningDecision =
       change && change.type === "patches" && Array.isArray(change.patches)
-        ? patchesContainRunningStatus(change.patches)
-        : false;
+        ? runningDecisionFromPatches(change.patches)
+        : null;
     const running = conversationState
       ? isConversationStateRunning(conversationState)
-      : Boolean(previous.running || patchRunning);
+      : patchRunningDecision !== null
+      ? patchRunningDecision
+      : Boolean(previous.running);
     const next = {
       threadId,
       ownerClientId: ownerClientId || previous.ownerClientId || null,
@@ -673,13 +675,30 @@ function isRunningStatus(status) {
   return RUNNING_STATUSES.has(normalized);
 }
 
-function patchesContainRunningStatus(patches) {
-  return patches.some((patch) => {
-    if (!patch || typeof patch !== "object") return false;
+function runningDecisionFromPatches(patches) {
+  let decision = null;
+  for (const patch of patches) {
+    if (!patch || typeof patch !== "object") continue;
     const pathLabel = Array.isArray(patch.path) ? patch.path.join(".") : "";
-    if (!/\bstatus\b/.test(pathLabel)) return false;
-    return isRunningStatus(patch.value);
-  });
+    if (/\bcompleted\b/.test(pathLabel)) {
+      if (patch.value === false) decision = true;
+      if (patch.value === true && decision === null) decision = false;
+      continue;
+    }
+    if (!/\bstatus\b/.test(pathLabel)) continue;
+    if (isRunningStatus(patch.value)) {
+      decision = true;
+      continue;
+    }
+    const status = String(patch.value || "")
+      .trim()
+      .replace(/[-\s]/g, "_")
+      .toLowerCase();
+    if (status === "completed" || status === "failed" || status === "interrupted") {
+      decision = false;
+    }
+  }
+  return decision;
 }
 
 function applyPatches(source, patches) {
@@ -781,6 +800,6 @@ module.exports = {
     isRunningStatus,
     normalizeReasoningEffort,
     normalizeDesktopIpcSendMode,
-    patchesContainRunningStatus,
+    runningDecisionFromPatches,
   },
 };

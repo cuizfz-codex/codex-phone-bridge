@@ -638,7 +638,12 @@ async function handleBridgeRequest(req, res) {
     sendJson(res, 404, { ok: false, error: "Not found" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sendJson(res, 500, { ok: false, error: message });
+    const statusCode = normalizeHttpErrorStatus(error);
+    sendJson(res, statusCode, {
+      ok: false,
+      code: error && error.code ? String(error.code) : null,
+      error: message,
+    });
   }
 }
 
@@ -1666,6 +1671,14 @@ function scheduleDesktopIpcThreadListRefresh() {
 
 async function startTurnWithPreferredTransport(threadId, input, body) {
   let ipcError = null;
+  const desktopRuntimeState =
+    desktopIpcMonitor && typeof desktopIpcMonitor.getThreadRuntimeState === "function"
+      ? desktopIpcMonitor.getThreadRuntimeState(threadId)
+      : null;
+  const desktopOwnedThread = Boolean(
+    desktopRuntimeState &&
+      (desktopRuntimeState.ownerClientId || desktopRuntimeState.running === true)
+  );
   if (
     desktopIpcMonitor &&
     desktopIpcMonitor.status().enabled &&
@@ -1685,6 +1698,16 @@ async function startTurnWithPreferredTransport(threadId, input, body) {
       };
     } catch (error) {
       ipcError = error;
+      if (desktopOwnedThread) {
+        const strictError = new Error(
+          `Codex desktop IPC failed for an observed desktop thread; app-server fallback was refused to avoid divergent desktop/web state: ${
+            error && error.message ? error.message : String(error)
+          }`
+        );
+        strictError.code = "DESKTOP_IPC_OWNED_THREAD_SEND_FAILED";
+        strictError.statusCode = 409;
+        throw strictError;
+      }
       console.warn(
         `[phone-codex-bridge] desktop IPC start-turn fallback to app-server: ${
           error && error.message ? error.message : String(error)
@@ -1706,6 +1729,14 @@ async function startTurnWithPreferredTransport(threadId, input, body) {
       : {}),
     ...appServerResult,
   };
+}
+
+function normalizeHttpErrorStatus(error) {
+  const raw =
+    error && (error.statusCode || error.httpStatus || error.status)
+      ? Number(error.statusCode || error.httpStatus || error.status)
+      : 500;
+  return Number.isInteger(raw) && raw >= 400 && raw <= 599 ? raw : 500;
 }
 
 async function setThreadModelEffortWithDesktop(threadId, body) {

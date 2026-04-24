@@ -748,6 +748,11 @@ function applyThreadRunDefaults(runDefaults) {
   renderModelFloat();
 }
 
+function closeModelEffortMenu() {
+  // The model effort control is read-only now; keep this cleanup hook safe for
+  // older menu paths such as thread long-press handling.
+}
+
 function getRunOverridePayload() {
   return {};
 }
@@ -2899,6 +2904,11 @@ async function connectEventSource() {
     if (!payload) return;
     handleRpcNotification(payload);
   });
+  es.addEventListener("desktop-ipc-thread-state", (event) => {
+    const payload = parseSse(event);
+    if (!payload) return;
+    handleDesktopIpcThreadState(payload);
+  });
   es.addEventListener("error", (event) => {
     const payload = parseSse(event);
     if (!payload || !payload.message) return;
@@ -2958,13 +2968,8 @@ function handleRpcNotification(payload) {
       if (method === "turn/started") {
         state.runningThreadIds.add(threadId);
       }
-      if (
-        (method === "turn/completed" || method === "turn/interrupted") &&
-        threadId === String(state.selectedThreadId || "") &&
-        state.selectedThread &&
-        !threadHasInProgress(state.selectedThread)
-      ) {
-        state.runningThreadIds.delete(threadId);
+      if (method === "turn/completed" || method === "turn/interrupted") {
+        markThreadRuntimeFinished(threadId);
       }
       renderThreadList();
       if (threadId === String(state.selectedThreadId || "")) {
@@ -2979,6 +2984,30 @@ function handleRpcNotification(payload) {
 
   if (method === "thread/started" || method === "thread/name/updated") {
     queueListRefresh(120, { preserveSelection: true, silent: true });
+  }
+}
+
+function handleDesktopIpcThreadState(payload) {
+  const threadId = String((payload && payload.threadId) || "");
+  if (!threadId) return;
+  if (payload.running === true) {
+    state.runningThreadIds.add(threadId);
+  } else if (payload.running === false) {
+    markThreadRuntimeFinished(threadId);
+  }
+  renderThreadList();
+  if (threadId === String(state.selectedThreadId || "")) {
+    renderCurrentThread();
+    queueThreadRefresh(160);
+  }
+}
+
+function markThreadRuntimeFinished(threadId) {
+  const key = String(threadId || "");
+  if (!key) return;
+  state.runningThreadIds.delete(key);
+  if (key === String(state.selectedThreadId || "")) {
+    state.liveDeltas.clear();
   }
 }
 
@@ -4510,29 +4539,26 @@ function normalizeTurnItemsForDisplay(rawItems) {
     };
   }
 
-  let lastAgentMessageIndex = -1;
-  for (let i = 0; i < displayable.length; i += 1) {
-    if (displayable[i] && displayable[i].type === "agentMessage") {
-      lastAgentMessageIndex = i;
-    }
-  }
-  if (lastAgentMessageIndex < 0) {
-    return {
-      items: displayable,
-      hiddenAgentCount: 0,
-    };
-  }
-
   const visible = [];
   let hiddenAgentCount = 0;
-  for (let i = 0; i < displayable.length; i += 1) {
-    const item = displayable[i];
-    if (item && item.type === "agentMessage" && i !== lastAgentMessageIndex) {
-      hiddenAgentCount += 1;
+  let pendingAgent = null;
+  const flushPendingAgent = () => {
+    if (!pendingAgent) return;
+    visible.push(pendingAgent);
+    pendingAgent = null;
+  };
+
+  for (const item of displayable) {
+    if (!item) continue;
+    if (item.type === "agentMessage") {
+      if (pendingAgent) hiddenAgentCount += 1;
+      pendingAgent = item;
       continue;
     }
+    flushPendingAgent();
     visible.push(item);
   }
+  flushPendingAgent();
   return {
     items: visible,
     hiddenAgentCount,
