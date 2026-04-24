@@ -821,11 +821,12 @@ async function handleV2Api(req, res, url, pathname) {
   }
 
   if (req.method === "POST" && pathname === "/api/v2/model-effort") {
-    const body = await readJsonBody(req, MAX_BODY_BYTES);
-    const result = await setGlobalModelEffortWithDesktop(body || {});
-    sendJson(res, 200, {
-      ok: true,
-      ...result,
+    await readJsonBody(req, MAX_BODY_BYTES);
+    sendJson(res, 409, {
+      ok: false,
+      code: "DESKTOP_MODEL_SYNC_DISABLED",
+      error:
+        "Direct desktop model sync is disabled because it can trigger duplicated plan rendering in Codex desktop.",
     });
     return;
   }
@@ -940,12 +941,12 @@ async function handleV2Api(req, res, url, pathname) {
     /^\/api\/v2\/threads\/([^/]+)\/model-effort$/
   );
   if (req.method === "POST" && mThreadModelEffort) {
-    const threadId = decodeURIComponent(mThreadModelEffort[1]);
-    const body = await readJsonBody(req, MAX_BODY_BYTES);
-    const result = await setThreadModelEffortWithDesktop(threadId, body || {});
-    sendJson(res, 200, {
-      ok: true,
-      ...result,
+    await readJsonBody(req, MAX_BODY_BYTES);
+    sendJson(res, 409, {
+      ok: false,
+      code: "DESKTOP_MODEL_SYNC_DISABLED",
+      error:
+        "Direct desktop model sync is disabled because it can trigger duplicated plan rendering in Codex desktop.",
     });
     return;
   }

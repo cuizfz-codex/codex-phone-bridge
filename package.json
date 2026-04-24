@@ -1,6 +1,6 @@
 {
   "name": "phone-codex-core",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Core services for phone-codex (bridge + ws proxy)",
   "main": "src/index.js",

@@ -275,10 +275,6 @@ const I18N = {
     "status.threadIdCopied": "已复制线程 ID",
     "status.threadForked": "已派生新线程",
     "status.modelEffortSet": "思考强度已切换为 {label}",
-    "status.modelEffortSyncing": "思考强度已切换为 {label}，正在同步桌面端...",
-    "status.modelEffortSynced": "思考强度已同步到桌面端: {label}",
-    "status.modelEffortSyncFailed":
-      "思考强度已在网页端切换，但同步桌面端失败: {error}",
     "status.imageUploadFailed": "图片上传失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
@@ -483,10 +479,6 @@ const I18N = {
     "status.threadIdCopied": "Thread ID copied",
     "status.threadForked": "Thread forked",
     "status.modelEffortSet": "Reasoning effort set to {label}",
-    "status.modelEffortSyncing": "Reasoning effort set to {label}. Syncing desktop...",
-    "status.modelEffortSynced": "Reasoning effort synced to desktop: {label}",
-    "status.modelEffortSyncFailed":
-      "Reasoning effort changed locally, but desktop sync failed: {error}",
     "status.imageUploadFailed": "Image upload failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
@@ -616,7 +608,6 @@ const state = {
     model: MODEL_FLOAT_MODEL,
     effort: null,
     userEffort: null,
-    syncSeq: 0,
   },
   modelMenu: {
     element: null,
@@ -749,13 +740,8 @@ function setModelEffortPreference(effort, options = {}) {
   localStorage.setItem(storageKeys.modelEffort, normalized);
   renderModelFloat();
   if (options.showStatus) {
-    setStatusKey("status.modelEffortSyncing", {
+    setStatusKey("status.modelEffortSet", {
       label: modelEffortLabel(normalized),
-    });
-  }
-  if (options.syncDesktop !== false) {
-    syncModelEffortToDesktop(normalized, {
-      showStatus: Boolean(options.showStatus),
     });
   }
 }
@@ -808,52 +794,6 @@ function getRunOverridePayload() {
   return effort ? { effort } : {};
 }
 
-function getModelEffortSyncThreadId() {
-  return String(state.lockedThreadId || state.selectedThreadId || "").trim();
-}
-
-async function syncModelEffortToDesktop(effort, options = {}) {
-  const normalized = normalizeModelEffort(effort);
-  const threadId = getModelEffortSyncThreadId();
-  if (!normalized) {
-    if (options.showStatus) {
-      setStatusKey("status.modelEffortSet", {
-        label: modelEffortLabel(normalized),
-      });
-    }
-    return;
-  }
-  const syncSeq = ++state.modelChoice.syncSeq;
-  const label = modelEffortLabel(normalized);
-  const url = threadId
-    ? `/api/v2/threads/${encodeURIComponent(threadId)}/model-effort`
-    : "/api/v2/model-effort";
-  try {
-    const data = await apiFetchJson(url, {
-      method: "POST",
-      body: {
-        reasoningEffort: normalized,
-      },
-    });
-    if (syncSeq !== state.modelChoice.syncSeq) return;
-    if (data && typeof data.model === "string" && data.model.trim()) {
-      state.modelChoice.model = data.model.trim();
-    }
-    state.modelChoice.effort = normalized;
-    renderModelFloat();
-    if (options.showStatus) {
-      setStatusKey("status.modelEffortSynced", { label });
-    }
-  } catch (error) {
-    if (syncSeq !== state.modelChoice.syncSeq) return;
-    if (options.showStatus) {
-      setStatusKey("status.modelEffortSyncFailed", {
-        error: asMessage(error),
-      });
-    }
-  }
-}
-
 function toggleModelEffortMenu() {
   if (state.modelMenu.open) {
     closeModelEffortMenu();
@@ -869,6 +809,7 @@ function ensureModelEffortMenu() {
   menu.className = "thread-context-menu model-effort-menu";
   menu.setAttribute("role", "menu");
   menu.hidden = true;
+  menu.addEventListener("contextmenu", suppressNativeContextMenu);
   menu.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -994,6 +935,22 @@ function handleModelMenuDocumentKeydown(event) {
 
 function handleModelMenuDocumentScroll() {
   closeModelEffortMenu();
+}
+
+function handleModelNativeContextMenuCapture(event) {
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  const menu = state.modelMenu.element;
+  const isModelControl =
+    (elements.modelFloat && elements.modelFloat.contains(target)) ||
+    (menu && menu.contains(target));
+  if (!isModelControl) return;
+  suppressNativeContextMenu(event);
+}
+
+function suppressNativeContextMenu(event) {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 async function refreshServerBasePresets() {
@@ -1974,7 +1931,13 @@ function bindEvents() {
       event.stopPropagation();
       toggleModelEffortMenu();
     });
+    elements.modelFloatBadge.addEventListener(
+      "contextmenu",
+      handleModelNativeContextMenuCapture,
+      true
+    );
   }
+  document.addEventListener("contextmenu", handleModelNativeContextMenuCapture, true);
 
   if (elements.advancedFilters) {
     elements.advancedFiltersToggle.addEventListener("click", () => {
