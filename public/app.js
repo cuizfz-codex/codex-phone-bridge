@@ -13,6 +13,8 @@ const elements = {
   loginStatus: document.querySelector("#login-status"),
   serverBase: document.querySelector("#server-base"),
   serverBasePreset: document.querySelector("#server-base-preset"),
+  languageSelect: document.querySelector("#language-select"),
+  themeSelect: document.querySelector("#theme-select"),
   authToken: document.querySelector("#auth-token"),
   openPairing: document.querySelector("#open-pairing"),
   pairingBanner: document.querySelector("#pairing-banner"),
@@ -39,9 +41,7 @@ const elements = {
   sourceFilter: document.querySelector("#source-filter"),
   archivedToggle: document.querySelector("#archived-toggle"),
   desktopCompatibleToggle: document.querySelector("#desktop-compatible-toggle"),
-  lockBanner: document.querySelector("#lock-banner"),
-  lockBannerText: document.querySelector("#lock-banner-text"),
-  unlockThreadBtn: document.querySelector("#unlock-thread-btn"),
+  displayModeBtn: document.querySelector("#display-mode-btn"),
   refreshThreadsBtn: document.querySelector("#refresh-threads-btn"),
   newThreadBtn: document.querySelector("#new-thread-btn"),
   threadTitle: document.querySelector("#thread-title"),
@@ -96,6 +96,9 @@ const storageKeys = {
   lockedThreadId: "codex_v2_locked_thread_id",
   initialThreadId: "codex_v2_initial_thread_id",
   desktopCompatibleMode: "codex_v2_desktop_compatible_mode",
+  displayMode: "codex_v2_display_mode",
+  theme: "codex_v2_theme",
+  language: "codex_v2_language",
   advancedFiltersOpen: "codex_v2_advanced_filters_open",
   approvalsExpanded: "codex_v2_approvals_expanded",
 };
@@ -182,8 +185,20 @@ const I18N = {
     "settings.addr.detected": "自动发现",
     "settings.token": "管理 Token（仅本机管理接口）",
     "settings.tokenPlaceholder": "可留空",
+    "settings.displayPrefs": "界面显示",
+    "settings.language": "语言",
+    "settings.languageSystem": "跟随系统",
+    "settings.languageZh": "中文",
+    "settings.languageEn": "English",
+    "settings.theme": "亮暗风格",
+    "settings.themeSystem": "跟随系统",
+    "settings.themeLight": "亮色",
+    "settings.themeDark": "暗色",
     "settings.note":
       "无需 token 或配对；若服务器开启密码模式，会自动弹出登录框。",
+    "displayMode.compact": "简洁显示",
+    "displayMode.detail": "详细显示",
+    "displayMode.title": "页面显示模式：{mode}",
     "login.title": "访问登录",
     "login.hint": "输入访问密码后继续；若服务器处于开放模式，将自动进入。",
     "login.password": "访问密码",
@@ -250,8 +265,6 @@ const I18N = {
     "status.sending": "发送中...",
     "status.sentTurn": "已发送到线程 {id}... · 回合 {turnId}",
     "status.sentThread": "已发送到线程 {id}...",
-    "thread.lockBanner":
-      "当前仅显示锁定线程 {id}...；点击下方可恢复全部 project。",
     "thread.emptyList": "没有可显示的线程。",
     "thread.emptyPreview": "(空白线程)",
     "thread.archived": "已归档",
@@ -352,8 +365,20 @@ const I18N = {
     "settings.addr.detected": "Discovered",
     "settings.token": "Admin token (local management endpoints only)",
     "settings.tokenPlaceholder": "Optional",
+    "settings.displayPrefs": "Display",
+    "settings.language": "Language",
+    "settings.languageSystem": "System",
+    "settings.languageZh": "中文",
+    "settings.languageEn": "English",
+    "settings.theme": "Light / Dark",
+    "settings.themeSystem": "System",
+    "settings.themeLight": "Light",
+    "settings.themeDark": "Dark",
     "settings.note":
       "No token or pairing required. If password mode is enabled, a login dialog appears automatically.",
+    "displayMode.compact": "Compact",
+    "displayMode.detail": "Detailed",
+    "displayMode.title": "Page display mode: {mode}",
     "login.title": "Access Login",
     "login.hint":
       "Enter the access password to continue. If server runs in open mode, you'll be connected automatically.",
@@ -422,8 +447,6 @@ const I18N = {
     "status.sending": "Sending...",
     "status.sentTurn": "Sent to thread {id}... · turn {turnId}",
     "status.sentThread": "Sent to thread {id}...",
-    "thread.lockBanner":
-      "Only locked thread {id}... is shown. Use the button below to restore all projects.",
     "thread.emptyList": "No threads to display.",
     "thread.emptyPreview": "(empty thread)",
     "thread.archived": "archived",
@@ -481,6 +504,7 @@ const state = {
   initialThreadId: null,
   lockedThreadId: null,
   desktopCompatibleMode: true,
+  displayMode: "compact",
   forceScrollToBottom: false,
   chatScrollLocked: false,
   threadUsageById: new Map(),
@@ -572,6 +596,7 @@ function init() {
   state.initialThreadId = getInitialThreadId();
   state.lockedThreadId = getLockedThreadId();
   state.desktopCompatibleMode = getDesktopCompatibleMode();
+  state.displayMode = getDisplayModePreference();
   const initialBase = resolveInitialBaseUrl();
   const initialToken = localStorage.getItem(storageKeys.token) || "";
   elements.serverBase.value = normalizeBaseUrl(initialBase);
@@ -588,6 +613,8 @@ function init() {
     );
   }
   renderModelFloat();
+  updateSettingsControls();
+  renderDisplayModeControl();
   bindEvents();
   applyLockedThreadUi();
   renderPairingBanner();
@@ -1039,6 +1066,10 @@ function normalizeLanguage(value) {
 }
 
 function getLanguagePreference() {
+  const stored = String(localStorage.getItem(storageKeys.language) || "")
+    .trim()
+    .toLowerCase();
+  if (stored === "zh" || stored === "en") return stored;
   const nav =
     typeof navigator !== "undefined"
       ? (Array.isArray(navigator.languages) && navigator.languages[0]) ||
@@ -1056,7 +1087,16 @@ function applyLanguage(language, options = {}) {
   const next = normalizeLanguage(language);
   state.language = next;
   document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
+  if (options.persist) {
+    const raw = String(language || "").trim().toLowerCase();
+    if (raw === "zh" || raw === "en") {
+      localStorage.setItem(storageKeys.language, raw);
+    } else {
+      localStorage.removeItem(storageKeys.language);
+    }
+  }
   applyI18nToDom();
+  updateSettingsControls();
   if (options.rerender === false) return;
   renderPairingBanner();
   applyLockedThreadUi();
@@ -1066,6 +1106,7 @@ function applyLanguage(language, options = {}) {
   renderPendingImages();
   renderContextUsage();
   renderQuotaUsage();
+  renderDisplayModeControl();
   if (state.lastStatusKey) {
     setStatusKey(state.lastStatusKey, state.lastStatusVars || {});
   }
@@ -1123,6 +1164,12 @@ function initializeTheme() {
 }
 
 function getThemePreference() {
+  const stored = String(localStorage.getItem(storageKeys.theme) || "")
+    .trim()
+    .toLowerCase();
+  if (stored === "light" || stored === "dark") {
+    return stored;
+  }
   if (
     window.matchMedia &&
     window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -1136,6 +1183,59 @@ function applyTheme(theme, options = {}) {
   const next = String(theme || "").toLowerCase() === "dark" ? "dark" : "light";
   state.theme = next;
   document.documentElement.setAttribute("data-theme", next);
+  if (options.persist) {
+    const raw = String(theme || "").trim().toLowerCase();
+    if (raw === "light" || raw === "dark") {
+      localStorage.setItem(storageKeys.theme, raw);
+    } else {
+      localStorage.removeItem(storageKeys.theme);
+    }
+  }
+  updateSettingsControls();
+}
+
+function getStoredChoice(key, allowed) {
+  const value = String(localStorage.getItem(key) || "").trim().toLowerCase();
+  return allowed.includes(value) ? value : "system";
+}
+
+function updateSettingsControls() {
+  if (elements.languageSelect) {
+    elements.languageSelect.value = getStoredChoice(storageKeys.language, ["zh", "en"]);
+  }
+  if (elements.themeSelect) {
+    elements.themeSelect.value = getStoredChoice(storageKeys.theme, ["light", "dark"]);
+  }
+}
+
+function getDisplayModePreference() {
+  const value = String(localStorage.getItem(storageKeys.displayMode) || "")
+    .trim()
+    .toLowerCase();
+  return value === "detail" ? "detail" : "compact";
+}
+
+function setDisplayMode(mode, options = {}) {
+  const next = String(mode || "").toLowerCase() === "detail" ? "detail" : "compact";
+  state.displayMode = next;
+  if (options.persist) {
+    localStorage.setItem(storageKeys.displayMode, next);
+  }
+  renderDisplayModeControl();
+  renderCurrentThread();
+}
+
+function renderDisplayModeControl() {
+  if (!elements.displayModeBtn) return;
+  const mode = state.displayMode === "detail" ? "detail" : "compact";
+  const label = t(mode === "detail" ? "displayMode.detail" : "displayMode.compact");
+  elements.displayModeBtn.textContent = label;
+  elements.displayModeBtn.dataset.mode = mode;
+  elements.displayModeBtn.setAttribute(
+    "aria-pressed",
+    mode === "detail" ? "true" : "false"
+  );
+  elements.displayModeBtn.title = t("displayMode.title", { mode: label });
 }
 
 function initializeRateLimitPolling() {
@@ -1393,6 +1493,7 @@ function bindEvents() {
   });
   elements.openSettings.addEventListener("click", () => {
     closeSidebar();
+    updateSettingsControls();
     void refreshServerBasePresets();
     elements.settingsDialog.showModal();
   });
@@ -1421,6 +1522,38 @@ function bindEvents() {
       const selected = normalizePresetUrl(elements.serverBasePreset.value);
       if (!selected) return;
       elements.serverBase.value = selected;
+    });
+  }
+  if (elements.languageSelect) {
+    elements.languageSelect.addEventListener("change", () => {
+      const value = String(elements.languageSelect.value || "system").trim();
+      if (value === "system") {
+        localStorage.removeItem(storageKeys.language);
+        applyLanguage(getLanguagePreference(), { rerender: true });
+      } else {
+        applyLanguage(value, {
+          persist: true,
+          rerender: true,
+        });
+      }
+    });
+  }
+  if (elements.themeSelect) {
+    elements.themeSelect.addEventListener("change", () => {
+      const value = String(elements.themeSelect.value || "system").trim();
+      if (value === "system") {
+        localStorage.removeItem(storageKeys.theme);
+        applyTheme(getThemePreference());
+      } else {
+        applyTheme(value, { persist: true });
+      }
+    });
+  }
+  if (elements.displayModeBtn) {
+    elements.displayModeBtn.addEventListener("click", () => {
+      setDisplayMode(state.displayMode === "detail" ? "compact" : "detail", {
+        persist: true,
+      });
     });
   }
   elements.settingsForm.addEventListener("submit", async (event) => {
@@ -1543,13 +1676,6 @@ function bindEvents() {
       // noop
     });
   });
-  if (elements.unlockThreadBtn) {
-    elements.unlockThreadBtn.addEventListener("click", () => {
-      clearThreadLock({ showStatus: true }).catch((error) => {
-        setStatusKey("status.unlockLoadFailed", { error: asMessage(error) });
-      });
-    });
-  }
   if (elements.chat) {
     elements.chat.addEventListener("scroll", () => {
       state.chatScrollLocked = !isChatNearBottom(80);
@@ -1869,15 +1995,6 @@ function applyLockedThreadUi() {
   if (elements.archivedToggle) elements.archivedToggle.disabled = locked;
   if (elements.desktopCompatibleToggle) {
     elements.desktopCompatibleToggle.disabled = locked;
-  }
-  if (elements.lockBanner) {
-    elements.lockBanner.hidden = false;
-    elements.lockBanner.dataset.locked = locked ? "1" : "0";
-  }
-  if (elements.lockBannerText) {
-    elements.lockBannerText.textContent = locked
-      ? t("thread.lockBanner", { id: state.lockedThreadId.slice(0, 8) })
-      : "";
   }
 }
 
@@ -3164,31 +3281,19 @@ function renderCurrentThread() {
   for (const turn of turns) {
     const turnWrap = document.createElement("section");
     turnWrap.className = "turn";
-    const turnHeader = document.createElement("header");
-    turnHeader.className = "turn-header";
-    turnHeader.textContent = t("thread.turnHeader", {
-      id: turn.id,
-      status: turn.status,
-    });
-    turnWrap.append(turnHeader);
 
     const normalized = normalizeTurnItemsForDisplay(turn.items);
+    if (normalized.items.length === 0 && !turn.error) {
+      continue;
+    }
     for (const item of normalized.items) {
       turnWrap.append(renderThreadItem(item));
     }
-    if (normalized.hiddenAgentCount > 0) {
-      const hint = document.createElement("div");
-      hint.className = "turn-hint";
-      hint.textContent = t("thread.hiddenAgent", {
-        count: normalized.hiddenAgentCount,
-      });
-      turnWrap.append(hint);
-    }
 
     if (turn.error) {
-      const error = document.createElement("pre");
+      const error = document.createElement("div");
       error.className = "item error";
-      error.textContent = JSON.stringify(turn.error, null, 2);
+      error.textContent = asMessage(turn.error) || "该轮任务失败";
       turnWrap.append(error);
     }
 
@@ -3577,6 +3682,13 @@ async function clearThreadLock(options = {}) {
   const showStatus = options.showStatus !== false;
   const lastLockedThreadId =
     String(state.lockedThreadId || localStorage.getItem(storageKeys.lockedThreadId) || "").trim();
+  if (!lastLockedThreadId) {
+    applyLockedThreadUi();
+    if (showStatus) {
+      setStatusKey("status.unlocked");
+    }
+    return;
+  }
   state.lockedThreadId = null;
   localStorage.removeItem(storageKeys.lockedThreadId);
   applyLockedThreadUi();
@@ -3590,6 +3702,7 @@ async function clearThreadLock(options = {}) {
     { allowDuringTyping: true }
   );
   await loadThreads({ preserveSelection: true, silent: false });
+  applyLockedThreadUi();
   if (showStatus) {
     setStatusKey("status.unlocked");
   }
@@ -3903,30 +4016,31 @@ function isRunningStatus(value) {
 
 function normalizeTurnItemsForDisplay(rawItems) {
   const items = Array.isArray(rawItems) ? rawItems : [];
-  if (!state.desktopCompatibleMode) {
+  const displayable = items.filter(isWebVisibleThreadItem);
+  if (state.displayMode === "detail") {
     return {
-      items,
+      items: displayable,
       hiddenAgentCount: 0,
     };
   }
 
   let lastAgentMessageIndex = -1;
-  for (let i = 0; i < items.length; i += 1) {
-    if (items[i] && items[i].type === "agentMessage") {
+  for (let i = 0; i < displayable.length; i += 1) {
+    if (displayable[i] && displayable[i].type === "agentMessage") {
       lastAgentMessageIndex = i;
     }
   }
   if (lastAgentMessageIndex < 0) {
     return {
-      items,
+      items: displayable,
       hiddenAgentCount: 0,
     };
   }
 
   const visible = [];
   let hiddenAgentCount = 0;
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
+  for (let i = 0; i < displayable.length; i += 1) {
+    const item = displayable[i];
     if (item && item.type === "agentMessage" && i !== lastAgentMessageIndex) {
       hiddenAgentCount += 1;
       continue;
@@ -3937,6 +4051,15 @@ function normalizeTurnItemsForDisplay(rawItems) {
     items: visible,
     hiddenAgentCount,
   };
+}
+
+function isWebVisibleThreadItem(item) {
+  if (!item || typeof item !== "object") return false;
+  return (
+    item.type === "userMessage" ||
+    item.type === "agentMessage" ||
+    item.type === "imageView"
+  );
 }
 
 function renderContextUsage() {

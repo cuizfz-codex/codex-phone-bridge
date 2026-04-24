@@ -318,6 +318,29 @@ h3 {
   text-overflow: ellipsis;
 }
 
+.display-mode-btn {
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  background: color-mix(in srgb, var(--surface-soft) 84%, transparent);
+  color: var(--muted);
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.display-mode-btn[data-mode="detail"] {
+  color: var(--thread-title-active);
+  border-color: color-mix(in srgb, var(--brand) 68%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  box-shadow: var(--shadow-active);
+}
+
+.display-mode-btn:active {
+  transform: translateY(1px);
+}
+
 .row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -338,28 +361,6 @@ h3 {
   color: var(--muted);
   min-width: 0;
   flex-wrap: wrap;
-}
-
-.lock-banner {
-  border: 1px solid var(--notice-line);
-  border-radius: var(--radius-md);
-  background: var(--notice-bg);
-  color: var(--notice-ink);
-  font-size: 0.76rem;
-  line-height: 1.3;
-  padding: 8px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-}
-
-.lock-banner[hidden] {
-  display: none;
-}
-
-.lock-banner .btn {
-  white-space: nowrap;
 }
 
 input,
@@ -668,31 +669,6 @@ select:focus-visible {
   letter-spacing: 0.01em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-}
-
-.quota-lock-banner {
-  border: 0;
-  background: transparent;
-  color: var(--notice-ink);
-  padding: 0;
-  box-shadow: none;
-  min-width: 0;
-  display: contents;
-}
-
-.quota-lock-banner #lock-banner-text {
-  display: none;
-}
-
-.quota-lock-banner .btn {
-  width: 100%;
-  height: 100%;
-  padding: 7px 6px;
-  font-size: 0.75rem;
-  line-height: 1.15;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .quota-label {
@@ -1389,6 +1365,24 @@ dialog::backdrop {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.settings-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-section h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .settings-form input,
