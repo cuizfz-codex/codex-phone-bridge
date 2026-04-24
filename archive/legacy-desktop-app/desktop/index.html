@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Codex Mobile Threads</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside id="sidebar" class="sidebar">
+        <header class="sidebar-top">
+          <div>
+            <h1>Codex Threads</h1>
+            <p class="sub">手机端控制台</p>
+          </div>
+          <button id="open-settings" class="btn ghost" type="button">设置</button>
+        </header>
+
+        <section class="sidebar-controls">
+          <button id="new-thread-btn" class="btn" type="button">新建 Thread</button>
+          <button id="refresh-threads-btn" class="btn ghost" type="button">刷新</button>
+          <button id="open-pairing" class="btn ghost" type="button">手机配对</button>
+          <input id="thread-search" type="search" placeholder="搜索 thread 关键词..." />
+          <div class="row">
+            <label class="fit">
+              来源
+              <select id="source-filter">
+                <option value="">全部</option>
+                <option value="vscode">vscode</option>
+                <option value="cli">cli</option>
+                <option value="exec">exec</option>
+                <option value="appServer">appServer</option>
+                <option value="unknown">unknown</option>
+              </select>
+            </label>
+            <label class="switch">
+              <input id="archived-toggle" type="checkbox" />
+              <span>包含归档</span>
+            </label>
+          </div>
+          <label class="switch">
+            <input id="desktop-compatible-toggle" type="checkbox" checked />
+            <span>桌面一致视图（隐藏过程更新）</span>
+          </label>
+          <section id="lock-banner" class="lock-banner" hidden>
+            <div id="lock-banner-text"></div>
+            <button id="unlock-thread-btn" class="btn mini ghost" type="button">
+              解除单线程锁定
+            </button>
+          </section>
+        </section>
+
+        <section id="thread-list" class="thread-list"></section>
+      </aside>
+
+      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+      <main class="main">
+        <header class="main-top">
+          <button id="menu-toggle" class="btn ghost" type="button">菜单</button>
+          <div class="title-wrap">
+            <h2 id="thread-title">请选择一个 Thread</h2>
+            <p id="thread-meta" class="sub"></p>
+          </div>
+          <div class="top-tools">
+            <div id="context-widget" class="context-widget" title="上下文窗口使用率">
+              <div id="context-ring" class="context-ring"></div>
+              <div class="context-meta">
+                <div class="context-caption">上下文</div>
+                <div id="context-usage-text" class="context-usage-text">-- / --</div>
+                <div id="context-pct-text" class="context-pct-text">--%</div>
+              </div>
+            </div>
+            <div
+              id="quota-widget"
+              class="quota-widget"
+              title="Codex 限额剩余（来自 account/rateLimits/read）"
+            >
+              <div class="quota-title">额度剩余</div>
+              <div class="quota-row">
+                <span class="quota-label">5h</span>
+                <span id="quota-5h-text" class="quota-value">--%</span>
+              </div>
+              <div class="quota-row">
+                <span class="quota-label">7d</span>
+                <span id="quota-7d-text" class="quota-value">--%</span>
+              </div>
+            </div>
+            <label class="theme-select-wrap" title="界面主题">
+              <span class="theme-label">主题</span>
+              <select id="theme-select">
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <section id="status-bar" class="status">状态: 初始化中...</section>
+        <section id="pairing-banner" class="pairing-banner hidden">
+          <div class="pairing-banner-text">
+            当前设备未绑定。请在桌面 `phone-codex` 控制页点击 `Start Pairing` 后扫码，通常会自动完成首次配对。
+          </div>
+          <button id="pairing-banner-btn" class="btn mini" type="button">去配对</button>
+        </section>
+
+        <section id="approval-panel" class="approval-panel hidden">
+          <header>
+            <h3>审批请求</h3>
+          </header>
+          <div id="approval-list"></div>
+        </section>
+
+        <section id="chat" class="chat"></section>
+
+        <section id="attachments" class="attachments">
+          <div id="pending-images" class="pending-images"></div>
+          <div id="pending-voice" class="pending-voice"></div>
+        </section>
+
+        <form id="composer" class="composer">
+          <textarea id="message-input" rows="3" placeholder="输入消息，支持文本 + 图片 + 语音转写"></textarea>
+          <div class="composer-actions">
+            <input id="image-picker" type="file" accept="image/*" multiple hidden />
+            <button id="pick-image-btn" class="btn ghost" type="button">图片</button>
+            <button id="voice-btn" class="btn ghost" type="button">语音</button>
+            <button id="send-btn" class="btn primary" type="submit">发送</button>
+          </div>
+        </form>
+      </main>
+    </div>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form" method="dialog" class="settings-form">
+        <h3>连接设置</h3>
+        <label>
+          服务器地址
+          <input id="server-base" type="text" placeholder="自动检测（默认当前访问地址）" />
+        </label>
+        <label>
+          管理 Token（仅本机管理接口）
+          <input id="auth-token" type="password" placeholder="可留空" />
+        </label>
+        <p class="setting-note">
+          业务 API 默认使用“设备签名认证（配对后自动）”，不再依赖共享 token。
+        </p>
+        <menu>
+          <button id="cancel-settings" type="button" class="btn ghost">取消</button>
+          <button type="submit" class="btn">保存</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="pairing-dialog">
+      <form id="pairing-form" method="dialog" class="settings-form pairing-form">
+        <h3>首次配对</h3>
+        <p class="sub">
+          扫描桌面端配对二维码后会自动绑定。若自动失败，可手动填写 Pairing ID + 验证码。
+        </p>
+        <label>
+          Pairing ID
+          <input id="pairing-id" type="text" placeholder="从配对链接自动填充" />
+        </label>
+        <label>
+          设备名称
+          <input id="pairing-device-name" type="text" placeholder="iPhone / Android" />
+        </label>
+        <label>
+          验证码
+          <input id="pairing-code" type="text" inputmode="numeric" maxlength="12" placeholder="6位验证码" />
+        </label>
+        <p id="pairing-status" class="sub"></p>
+        <menu>
+          <button id="cancel-pairing" type="button" class="btn ghost">取消</button>
+          <button id="submit-pairing" type="submit" class="btn">完成配对</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

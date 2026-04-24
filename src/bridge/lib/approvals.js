@@ -2,6 +2,38 @@ function normalizeDecision(value) {
   return String(value || "").trim();
 }
 
+function emptyGrantedPermissions() {
+  return {
+    network: { enabled: null },
+    fileSystem: { read: null, write: null },
+  };
+}
+
+function cloneJson(value) {
+  if (value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function permissionResponseForDecision(pending, decision, input) {
+  const params = pending && pending.params && typeof pending.params === "object"
+    ? pending.params
+    : {};
+  const requested = params.permissions && typeof params.permissions === "object"
+    ? params.permissions
+    : {};
+  const explicit = input.permissions && typeof input.permissions === "object"
+    ? input.permissions
+    : null;
+  const accepted = decision === "accept" || decision === "acceptForSession";
+  return {
+    permissions: accepted
+      ? cloneJson(explicit || requested || emptyGrantedPermissions())
+      : emptyGrantedPermissions(),
+    scope: decision === "acceptForSession" ? "session" : "turn",
+    strictAutoReview: Boolean(input.strictAutoReview),
+  };
+}
+
 function buildApprovalResponsePayload(pending, body) {
   const method = pending.method;
   const input = body && typeof body === "object" ? body : {};
@@ -13,6 +45,7 @@ function buildApprovalResponsePayload(pending, body) {
       "decline",
       "cancel",
       "acceptWithExecpolicyAmendment",
+      "applyNetworkPolicyAmendment",
     ]);
     if (!allowed.has(decision)) {
       throw new Error("Invalid decision for command execution approval");
@@ -29,6 +62,22 @@ function buildApprovalResponsePayload(pending, body) {
         },
       };
     }
+    if (decision === "applyNetworkPolicyAmendment") {
+      const amendment =
+        input.networkPolicyAmendment ||
+        input.network_policy_amendment ||
+        null;
+      if (!amendment || typeof amendment !== "object") {
+        throw new Error("networkPolicyAmendment is required");
+      }
+      return {
+        decision: {
+          applyNetworkPolicyAmendment: {
+            network_policy_amendment: amendment,
+          },
+        },
+      };
+    }
     return { decision };
   }
   if (method === "item/fileChange/requestApproval") {
@@ -39,7 +88,18 @@ function buildApprovalResponsePayload(pending, body) {
     }
     return { decision };
   }
+  if (method === "item/permissions/requestApproval") {
+    const decision = normalizeDecision(input.decision);
+    const allowed = new Set(["accept", "acceptForSession", "decline", "cancel"]);
+    if (!allowed.has(decision)) {
+      throw new Error("Invalid decision for permissions approval");
+    }
+    return permissionResponseForDecision(pending, decision, input);
+  }
   if (method === "item/tool/requestUserInput") {
+    if (normalizeDecision(input.decision) === "cancel") {
+      return { answers: {} };
+    }
     if (!input.answers || typeof input.answers !== "object") {
       throw new Error("answers is required");
     }
