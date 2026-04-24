@@ -820,6 +820,16 @@ async function handleV2Api(req, res, url, pathname) {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/api/v2/model-effort") {
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    const result = await setGlobalModelEffortWithDesktop(body || {});
+    sendJson(res, 200, {
+      ok: true,
+      ...result,
+    });
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/api/v2/threads") {
     const rawBody = await readJsonBody(req, MAX_BODY_BYTES);
     const body = withDefaultApprovalPolicy(rawBody || {});
@@ -923,6 +933,20 @@ async function handleV2Api(req, res, url, pathname) {
     const threadId = decodeURIComponent(mThreadUnarchive[1]);
     const result = await threadSync.unarchiveThread(threadId);
     sendJson(res, 200, { ok: true, thread: result.thread || null });
+    return;
+  }
+
+  const mThreadModelEffort = pathname.match(
+    /^\/api\/v2\/threads\/([^/]+)\/model-effort$/
+  );
+  if (req.method === "POST" && mThreadModelEffort) {
+    const threadId = decodeURIComponent(mThreadModelEffort[1]);
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    const result = await setThreadModelEffortWithDesktop(threadId, body || {});
+    sendJson(res, 200, {
+      ok: true,
+      ...result,
+    });
     return;
   }
 
@@ -1681,6 +1705,82 @@ async function startTurnWithPreferredTransport(threadId, input, body) {
       : {}),
     ...appServerResult,
   };
+}
+
+async function setThreadModelEffortWithDesktop(threadId, body) {
+  assertDesktopModelSyncEnabled();
+  let result = null;
+  try {
+    result = await desktopIpcMonitor.setModelAndReasoning(threadId, body || {});
+  } catch (error) {
+    if (!error || error.code !== "IPC_NO_OWNER") {
+      throw error;
+    }
+    const selectedThread = await readThreadForModelSyncFallback(threadId);
+    result = await desktopIpcMonitor.setModelAndReasoningForKnownThreads(body || {}, {
+      cwd: selectedThread && selectedThread.cwd ? selectedThread.cwd : null,
+    });
+  }
+  threadSync.triggerImmediateThreadRead(threadId);
+  scheduleDesktopIpcThreadListRefresh();
+  const syncedThreads = Array.isArray(result.synced) ? result.synced : [];
+  return {
+    via: "desktop-ipc",
+    fallback: result.fallback === true ? true : null,
+    desktopIpc: {
+      ownerClientId: result.ownerClientId || null,
+      response: result.response || null,
+      syncedThreads,
+      syncedThreadCount: syncedThreads.length || null,
+      failedThreads: Array.isArray(result.failed) ? result.failed : null,
+    },
+    model: result.model,
+    reasoningEffort: result.reasoningEffort,
+  };
+}
+
+async function setGlobalModelEffortWithDesktop(body) {
+  assertDesktopModelSyncEnabled();
+  const result = await desktopIpcMonitor.setModelAndReasoningForKnownThreads(
+    body || {},
+    {}
+  );
+  scheduleDesktopIpcThreadListRefresh();
+  const syncedThreads = Array.isArray(result.synced) ? result.synced : [];
+  return {
+    via: "desktop-ipc",
+    fallback: result.fallback === true ? true : null,
+    desktopIpc: {
+      ownerClientId: null,
+      response: null,
+      syncedThreads,
+      syncedThreadCount: syncedThreads.length || null,
+      failedThreads: Array.isArray(result.failed) ? result.failed : null,
+    },
+    model: result.model,
+    reasoningEffort: result.reasoningEffort,
+  };
+}
+
+function assertDesktopModelSyncEnabled() {
+  if (
+    !desktopIpcMonitor ||
+    !desktopIpcMonitor.status().enabled ||
+    desktopIpcMonitor.status().sendMode !== "prefer"
+  ) {
+    const error = new Error("Codex desktop IPC is not enabled for model sync");
+    error.code = "IPC_NOT_ENABLED";
+    throw error;
+  }
+}
+
+async function readThreadForModelSyncFallback(threadId) {
+  if (!threadSync || !threadId) return null;
+  try {
+    return await threadSync.readThread(threadId, false);
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function decorateThreadListWithTitles(threads) {

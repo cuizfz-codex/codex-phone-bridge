@@ -104,6 +104,14 @@ test("DesktopIpcMonitor sends turns to known desktop owner", async () => {
             threadId: "thread-1",
             cwd: "/tmp/project",
             model: "gpt-test",
+            effort: "xhigh",
+            collaborationMode: {
+              mode: "default",
+              settings: {
+                model: "gpt-test",
+                reasoning_effort: "xhigh",
+              },
+            },
             input: [{ type: "text", text: "old" }],
             attachments: [{ label: "old", path: "/tmp/old", fsPath: "/tmp/old" }],
           },
@@ -116,7 +124,7 @@ test("DesktopIpcMonitor sends turns to known desktop owner", async () => {
   const result = await monitor.startTurn(
     "thread-1",
     [{ type: "text", text: "hello" }],
-    { approvalPolicy: "never" }
+    { approvalPolicy: "never", effort: "high" }
   );
 
   assert.equal(result.via, "desktop-ipc");
@@ -128,7 +136,160 @@ test("DesktopIpcMonitor sends turns to known desktop owner", async () => {
   assert.deepEqual(sent.params.turnStartParams.input, [{ type: "text", text: "hello" }]);
   assert.equal(sent.params.turnStartParams.cwd, "/tmp/project");
   assert.equal(sent.params.turnStartParams.model, "gpt-test");
+  assert.equal(sent.params.turnStartParams.effort, "high");
+  assert.equal(
+    sent.params.turnStartParams.collaborationMode.settings.reasoning_effort,
+    "high"
+  );
   assert.equal(sent.params.turnStartParams.approvalPolicy, "never");
+});
+
+test("DesktopIpcMonitor syncs model and reasoning to desktop owner", async () => {
+  const monitor = new DesktopIpcMonitor({ enabled: false, sendMode: "prefer" });
+  let sent = null;
+  monitor.client = {
+    status() {
+      return { connected: true, initialized: true };
+    },
+    async sendRequestAndWait(method, params, options) {
+      sent = { method, params, options };
+      return { resultType: "success", result: { ok: true } };
+    },
+  };
+  monitor.threadStateById.set("thread-1", {
+    threadId: "thread-1",
+    ownerClientId: "desktop-client-1",
+    running: false,
+    updatedAt: new Date().toISOString(),
+    conversationState: {
+      latestModel: "gpt-5.5",
+      latestReasoningEffort: "xhigh",
+      latestCollaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-5.5",
+          reasoning_effort: "xhigh",
+        },
+      },
+      turns: [],
+      requests: [],
+    },
+  });
+
+  const result = await monitor.setModelAndReasoning("thread-1", {
+    reasoningEffort: "high",
+  });
+
+  assert.equal(result.via, "desktop-ipc");
+  assert.equal(result.model, "gpt-5.5");
+  assert.equal(result.reasoningEffort, "high");
+  assert.equal(sent.method, "thread-follower-set-model-and-reasoning");
+  assert.deepEqual(sent.params, {
+    conversationId: "thread-1",
+    model: "gpt-5.5",
+    reasoningEffort: "high",
+  });
+  assert.equal(sent.options.targetClientId, "desktop-client-1");
+  assert.equal(
+    monitor.getThreadRunDefaults("thread-1").effort,
+    "high"
+  );
+});
+
+test("DesktopIpcMonitor syncs reasoning to known desktop threads by cwd", async () => {
+  const monitor = new DesktopIpcMonitor({ enabled: false, sendMode: "prefer" });
+  const sent = [];
+  monitor.client = {
+    status() {
+      return { connected: true, initialized: true };
+    },
+    async sendRequestAndWait(method, params, options) {
+      sent.push({ method, params, options });
+      return { resultType: "success", result: { ok: true } };
+    },
+  };
+  const updatedAt = new Date().toISOString();
+  monitor.threadStateById.set("thread-1", {
+    threadId: "thread-1",
+    ownerClientId: "desktop-client-1",
+    running: false,
+    updatedAt,
+    conversationState: {
+      latestModel: "gpt-5.5",
+      latestReasoningEffort: "xhigh",
+      turns: [{ params: { cwd: "/tmp/project-a" } }],
+      requests: [],
+    },
+  });
+  monitor.threadStateById.set("thread-2", {
+    threadId: "thread-2",
+    ownerClientId: "desktop-client-2",
+    running: false,
+    updatedAt,
+    conversationState: {
+      latestModel: "gpt-5.4",
+      latestReasoningEffort: "medium",
+      turns: [{ params: { cwd: "/tmp/project-b" } }],
+      requests: [],
+    },
+  });
+
+  const result = await monitor.setModelAndReasoningForKnownThreads(
+    { reasoningEffort: "high" },
+    { cwd: "/tmp/project-a" }
+  );
+
+  assert.equal(result.fallback, true);
+  assert.equal(result.synced.length, 1);
+  assert.equal(result.synced[0].threadId, "thread-1");
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].params, {
+    conversationId: "thread-1",
+    model: "gpt-5.5",
+    reasoningEffort: "high",
+  });
+  assert.equal(monitor.getThreadRunDefaults("thread-1").effort, "high");
+  assert.equal(monitor.getThreadRunDefaults("thread-2").effort, "medium");
+});
+
+test("DesktopIpcMonitor reads nested collaboration defaults", () => {
+  assert.deepEqual(
+    _test.extractRunDefaultsFromConversationState({
+      latestCollaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-5.5",
+          reasoning_effort: "high",
+        },
+      },
+      turns: [
+        {
+          params: {
+            model: "old-model",
+            effort: "xhigh",
+          },
+        },
+      ],
+    }),
+    { model: "gpt-5.5", effort: "high" }
+  );
+});
+
+test("DesktopIpcMonitor reads cwd from latest turn params", () => {
+  assert.equal(
+    _test.extractCwdFromConversationState({
+      turns: [
+        {
+          params: {
+            cwd: "/tmp/project",
+            model: "gpt-5.5",
+            effort: "high",
+          },
+        },
+      ],
+    }),
+    "/tmp/project"
+  );
 });
 
 test("DesktopIpcMonitor refuses sends when owner is unknown", async () => {

@@ -275,6 +275,10 @@ const I18N = {
     "status.threadIdCopied": "已复制线程 ID",
     "status.threadForked": "已派生新线程",
     "status.modelEffortSet": "思考强度已切换为 {label}",
+    "status.modelEffortSyncing": "思考强度已切换为 {label}，正在同步桌面端...",
+    "status.modelEffortSynced": "思考强度已同步到桌面端: {label}",
+    "status.modelEffortSyncFailed":
+      "思考强度已在网页端切换，但同步桌面端失败: {error}",
     "status.imageUploadFailed": "图片上传失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
@@ -479,6 +483,10 @@ const I18N = {
     "status.threadIdCopied": "Thread ID copied",
     "status.threadForked": "Thread forked",
     "status.modelEffortSet": "Reasoning effort set to {label}",
+    "status.modelEffortSyncing": "Reasoning effort set to {label}. Syncing desktop...",
+    "status.modelEffortSynced": "Reasoning effort synced to desktop: {label}",
+    "status.modelEffortSyncFailed":
+      "Reasoning effort changed locally, but desktop sync failed: {error}",
     "status.imageUploadFailed": "Image upload failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
@@ -608,6 +616,7 @@ const state = {
     model: MODEL_FLOAT_MODEL,
     effort: null,
     userEffort: null,
+    syncSeq: 0,
   },
   modelMenu: {
     element: null,
@@ -637,6 +646,7 @@ const state = {
     pendingRow: null,
     longPressTriggered: false,
     suppressClickUntil: 0,
+    nativeContextBlockedUntil: 0,
   },
 };
 
@@ -739,8 +749,13 @@ function setModelEffortPreference(effort, options = {}) {
   localStorage.setItem(storageKeys.modelEffort, normalized);
   renderModelFloat();
   if (options.showStatus) {
-    setStatusKey("status.modelEffortSet", {
+    setStatusKey("status.modelEffortSyncing", {
       label: modelEffortLabel(normalized),
+    });
+  }
+  if (options.syncDesktop !== false) {
+    syncModelEffortToDesktop(normalized, {
+      showStatus: Boolean(options.showStatus),
     });
   }
 }
@@ -791,6 +806,52 @@ function getRunOverridePayload() {
     state.modelChoice.userEffort || state.modelChoice.effort
   );
   return effort ? { effort } : {};
+}
+
+function getModelEffortSyncThreadId() {
+  return String(state.lockedThreadId || state.selectedThreadId || "").trim();
+}
+
+async function syncModelEffortToDesktop(effort, options = {}) {
+  const normalized = normalizeModelEffort(effort);
+  const threadId = getModelEffortSyncThreadId();
+  if (!normalized) {
+    if (options.showStatus) {
+      setStatusKey("status.modelEffortSet", {
+        label: modelEffortLabel(normalized),
+      });
+    }
+    return;
+  }
+  const syncSeq = ++state.modelChoice.syncSeq;
+  const label = modelEffortLabel(normalized);
+  const url = threadId
+    ? `/api/v2/threads/${encodeURIComponent(threadId)}/model-effort`
+    : "/api/v2/model-effort";
+  try {
+    const data = await apiFetchJson(url, {
+      method: "POST",
+      body: {
+        reasoningEffort: normalized,
+      },
+    });
+    if (syncSeq !== state.modelChoice.syncSeq) return;
+    if (data && typeof data.model === "string" && data.model.trim()) {
+      state.modelChoice.model = data.model.trim();
+    }
+    state.modelChoice.effort = normalized;
+    renderModelFloat();
+    if (options.showStatus) {
+      setStatusKey("status.modelEffortSynced", { label });
+    }
+  } catch (error) {
+    if (syncSeq !== state.modelChoice.syncSeq) return;
+    if (options.showStatus) {
+      setStatusKey("status.modelEffortSyncFailed", {
+        error: asMessage(error),
+      });
+    }
+  }
 }
 
 function toggleModelEffortMenu() {
@@ -884,18 +945,29 @@ function renderModelEffortMenu(menu) {
 
 function positionModelEffortMenu(menu) {
   if (!elements.modelFloatBadge) return;
-  const pad = 8;
+  const pad = 10;
   const anchor = elements.modelFloatBadge.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const effectiveAnchorTop = Math.min(
+    Math.max(anchor.top, pad + 104),
+    Math.max(pad + 104, viewportHeight - pad)
+  );
   menu.style.left = "0px";
   menu.style.top = "0px";
+  menu.style.maxHeight = "";
+  const naturalHeight = Math.max(menu.scrollHeight || 0, 160);
+  const availableAbove = Math.max(0, effectiveAnchorTop - pad - 8);
+  const viewportLimit = Math.max(120, viewportHeight - pad * 2);
+  const maxHeight = Math.min(
+    naturalHeight,
+    availableAbove > 0 ? availableAbove : viewportLimit
+  );
+  menu.style.maxHeight = `${Math.floor(Math.max(96, maxHeight))}px`;
   const rect = menu.getBoundingClientRect();
   let x = anchor.left;
-  let y = anchor.top - rect.height - 8;
-  if (y < pad) {
-    y = anchor.bottom + 8;
-  }
+  let y = effectiveAnchorTop - rect.height - 8;
   x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - rect.width - pad));
-  y = Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - rect.height - pad));
+  y = Math.min(Math.max(pad, y), Math.max(pad, viewportHeight - rect.height - pad));
   menu.style.left = `${Math.round(x)}px`;
   menu.style.top = `${Math.round(y)}px`;
 }
@@ -1975,6 +2047,11 @@ function bindEvents() {
   elements.threadList.addEventListener("pointermove", handleThreadListPointerMove);
   elements.threadList.addEventListener("pointerup", handleThreadListPointerEnd);
   elements.threadList.addEventListener("pointercancel", handleThreadListPointerEnd);
+  elements.threadList.addEventListener(
+    "contextmenu",
+    handleThreadListNativeContextMenuCapture,
+    true
+  );
   elements.threadList.addEventListener("contextmenu", handleThreadListContextMenu);
   window.addEventListener("resize", closeThreadContextMenu);
 
@@ -3505,6 +3582,10 @@ function handleThreadListPointerDown(event) {
   state.threadMenu.startY = event.clientY;
   state.threadMenu.pendingRow = row;
   state.threadMenu.longPressTriggered = false;
+  if (event.pointerType !== "mouse") {
+    state.threadMenu.nativeContextBlockedUntil =
+      Date.now() + THREAD_LONG_PRESS_MS + 900;
+  }
   row.classList.add("is-long-pressing");
   state.threadMenu.timer = setTimeout(() => {
     state.threadMenu.timer = null;
@@ -3543,12 +3624,28 @@ function handleThreadListPointerEnd(event) {
   cancelThreadLongPress();
 }
 
+function handleThreadListNativeContextMenuCapture(event) {
+  const row = getThreadRowFromTarget(event.target);
+  if (!row) return;
+  event.preventDefault();
+  if (
+    state.threadMenu.timer ||
+    state.threadMenu.open ||
+    Date.now() < Number(state.threadMenu.nativeContextBlockedUntil || 0)
+  ) {
+    event.stopPropagation();
+  }
+}
+
 function handleThreadListContextMenu(event) {
   const row = getThreadRowFromTarget(event.target);
   if (!row) return;
   const threadId = String(row.dataset.threadId || "");
   if (!threadId) return;
   event.preventDefault();
+  if (Date.now() < Number(state.threadMenu.nativeContextBlockedUntil || 0)) {
+    return;
+  }
   cancelThreadLongPress();
   state.threadMenu.suppressClickUntil = Date.now() + 350;
   openThreadContextMenu(threadId, {

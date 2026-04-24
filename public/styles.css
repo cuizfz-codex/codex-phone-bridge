@@ -835,6 +835,9 @@ select:focus-visible {
   gap: 8px;
   overflow-x: hidden;
   min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .project-group {
@@ -904,6 +907,9 @@ select:focus-visible {
   display: grid;
   gap: 8px;
   min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .project-more-btn {
@@ -943,6 +949,7 @@ select:focus-visible {
     box-shadow 160ms ease;
   touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
 
@@ -1009,7 +1016,9 @@ select:focus-visible {
   display: block;
   min-width: 0;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 .thread-preview {
@@ -1081,6 +1090,10 @@ select:focus-visible {
 
 .model-effort-menu {
   min-width: 132px;
+  max-height: calc(100dvh - 20px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 120;
 }
 
 .model-effort-menu-title {
