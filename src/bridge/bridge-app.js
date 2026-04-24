@@ -11,6 +11,7 @@ const { URL } = require("url");
 
 const { CodexAppServerClient } = require("../codex-rpc-client");
 const { ThreadSyncService, ALL_SOURCE_KINDS } = require("../thread-service");
+const { createDesktopIpcMonitorFromEnv } = require("../desktop-ipc-monitor");
 const { DesktopNudge, normalizeDesktopNudgeMode } = require("../desktop-nudge");
 const { MediaService } = require("../media-service");
 const { SSEHub } = require("../sse-hub");
@@ -33,6 +34,12 @@ const HTTPS_PASSPHRASE = String(process.env.HTTPS_PASSPHRASE || "");
 const HTTPS_REDIRECT_PORT = parseInteger(
   process.env.HTTPS_REDIRECT_PORT,
   0,
+  0,
+  65535
+);
+const LOCAL_HTTP_PREVIEW_PORT = parseInteger(
+  process.env.LOCAL_HTTP_PREVIEW_PORT,
+  8786,
   0,
   65535
 );
@@ -131,11 +138,15 @@ let sseHub = null;
 let mediaService = null;
 let threadSync = null;
 let desktopNudge = null;
+let desktopIpcMonitor = null;
 let webTurnsCleanupTimer = null;
+let desktopIpcRefreshTimer = null;
 let httpRedirectServer = null;
+let localHttpPreviewServer = null;
 
 const threadUsageById = new Map();
 const threadUsageFileCache = new Map();
+const threadRunDefaultsFileCache = new Map();
 const webTurns = new Map();
 const THREAD_USAGE_FILE_CACHE_MAX = 256;
 const THREAD_USAGE_TAIL_WINDOWS = [
@@ -502,11 +513,16 @@ async function handleBridgeRequest(req, res) {
             Number.isInteger(HTTPS_REDIRECT_PORT) && HTTPS_REDIRECT_PORT > 0
               ? HTTPS_REDIRECT_PORT
               : null,
+          localHttpPreviewPort:
+            Number.isInteger(LOCAL_HTTP_PREVIEW_PORT) && LOCAL_HTTP_PREVIEW_PORT > 0
+              ? LOCAL_HTTP_PREVIEW_PORT
+              : null,
         },
         rpc: rpc.status(),
         sseClients: sseHub.count(),
         mediaRoot: MEDIA_ROOT,
         desktopNudge: desktopNudge.status(),
+        desktopIpc: desktopIpcMonitor ? desktopIpcMonitor.status() : null,
         remote: {
           mode: REMOTE_MODE === "tailscale" ? "tailscale" : "off",
           tailscale: REMOTE_TAILSCALE,
@@ -668,6 +684,28 @@ function startHttpRedirectServerIfNeeded() {
   });
 }
 
+function startLocalHttpPreviewServerIfNeeded() {
+  if (!HTTPS_ENABLED) return;
+  if (!Number.isInteger(LOCAL_HTTP_PREVIEW_PORT) || LOCAL_HTTP_PREVIEW_PORT <= 0) return;
+  if (LOCAL_HTTP_PREVIEW_PORT === PORT) {
+    console.warn(
+      "[phone-codex-bridge] LOCAL_HTTP_PREVIEW_PORT equals PORT; skip local http preview listener."
+    );
+    return;
+  }
+  if (localHttpPreviewServer) return;
+
+  localHttpPreviewServer = http.createServer(handleBridgeRequest);
+  localHttpPreviewServer.on("error", (error) => {
+    console.error("[phone-codex-bridge] local http preview server error:", error);
+  });
+  localHttpPreviewServer.listen(LOCAL_HTTP_PREVIEW_PORT, "127.0.0.1", () => {
+    console.log(
+      `[phone-codex-bridge] local preview on http://127.0.0.1:${LOCAL_HTTP_PREVIEW_PORT}`
+    );
+  });
+}
+
 async function handleV2Api(req, res, url, pathname) {
   if (req.method === "GET" && pathname === "/api/v2/events") {
     const threadId = (url.searchParams.get("threadId") || "").trim() || null;
@@ -684,6 +722,7 @@ async function handleV2Api(req, res, url, pathname) {
     sseHub.sendTo(clientId, "sync", {
       now: new Date().toISOString(),
       rpc: rpc.status(),
+      desktopIpc: desktopIpcMonitor ? desktopIpcMonitor.status() : null,
       threadId,
     });
     sseHub.sendTo(clientId, "approvals", {
@@ -746,7 +785,7 @@ async function handleV2Api(req, res, url, pathname) {
     sendJson(res, 200, {
       ok: true,
       ...result,
-      data: dataWithTitle,
+      data: dataWithTitle.map(compactThreadListItem),
     });
     return;
   }
@@ -806,10 +845,10 @@ async function handleV2Api(req, res, url, pathname) {
       sendJson(res, 400, { ok: false, error: "No input to send" });
       return;
     }
-    const result = await threadSync.startTurn(threadId, built.input, body);
+    const result = await startTurnWithPreferredTransport(threadId, built.input, body);
     const turnId =
       result && result.turn && result.turn.id ? String(result.turn.id) : "";
-    if (turnId && rpc.status().transport === "stdio") {
+    if (turnId && result.via !== "desktop-ipc" && rpc.status().transport === "stdio") {
       webTurns.set(webTurnKey(threadId, turnId), { createdAt: Date.now() });
       desktopNudge.request({ reason: "turn-start", threadId, turnId });
     }
@@ -906,10 +945,12 @@ async function handleV2Api(req, res, url, pathname) {
       decorateThreadMedia(thread, mediaService)
     );
     const usage = await resolveThreadUsageForThread(String(threadId), thread);
+    const runDefaults = await resolveThreadRunDefaultsForThread(String(threadId), thread);
     sendJson(res, 200, {
       ok: true,
       thread: decorated,
       usage,
+      runDefaults,
     });
     return;
   }
@@ -1341,6 +1382,40 @@ function bindEvents() {
     sseHub.broadcast("approval-required", request);
   });
 
+  if (desktopIpcMonitor) {
+    desktopIpcMonitor.on("status", (status) => {
+      sseHub.broadcast("desktop-ipc", {
+        status,
+        now: new Date().toISOString(),
+      });
+    });
+    desktopIpcMonitor.on("thread-state-changed", (payload) => {
+      const threadId = payload && payload.threadId ? String(payload.threadId) : "";
+      if (threadId) {
+        threadSync.triggerImmediateThreadRead(threadId);
+      }
+      scheduleDesktopIpcThreadListRefresh();
+      sseHub.broadcast("desktop-ipc-thread-state", {
+        ...payload,
+        now: new Date().toISOString(),
+      });
+    });
+    desktopIpcMonitor.on("protocol-warning", (warning) => {
+      sseHub.broadcast("warning", {
+        source: "desktop-ipc",
+        ...warning,
+        now: new Date().toISOString(),
+      });
+    });
+    desktopIpcMonitor.on("error", (error) => {
+      sseHub.broadcast("warning", {
+        source: "desktop-ipc",
+        message: String(error && error.message ? error.message : error),
+        now: new Date().toISOString(),
+      });
+    });
+  }
+
   threadSync.on("thread-list-updated", (payload) => {
     sseHub.broadcast("thread-list-updated", {
       reason: payload && payload.reason ? String(payload.reason) : "poll",
@@ -1549,6 +1624,65 @@ function maybeNudgeDesktopForNotification(notification) {
   desktopNudge.request({ reason: "turn-completed", threadId, turnId });
 }
 
+function scheduleDesktopIpcThreadListRefresh() {
+  if (desktopIpcRefreshTimer || !threadSync) return;
+  desktopIpcRefreshTimer = setTimeout(() => {
+    desktopIpcRefreshTimer = null;
+    threadSync.refreshThreadList("desktop-ipc").catch((error) => {
+      console.warn(
+        `[phone-codex-bridge] desktop IPC thread refresh failed: ${
+          error && error.message ? error.message : String(error)
+        }`
+      );
+    });
+  }, 250);
+  desktopIpcRefreshTimer.unref();
+}
+
+async function startTurnWithPreferredTransport(threadId, input, body) {
+  let ipcError = null;
+  if (
+    desktopIpcMonitor &&
+    desktopIpcMonitor.status().enabled &&
+    desktopIpcMonitor.status().sendMode === "prefer"
+  ) {
+    try {
+      const desktopResult = await desktopIpcMonitor.startTurn(threadId, input, body);
+      threadSync.triggerImmediateThreadRead(threadId);
+      scheduleDesktopIpcThreadListRefresh();
+      return {
+        ok: true,
+        via: "desktop-ipc",
+        desktopIpc: {
+          ownerClientId: desktopResult.ownerClientId,
+          response: desktopResult.response || null,
+        },
+      };
+    } catch (error) {
+      ipcError = error;
+      console.warn(
+        `[phone-codex-bridge] desktop IPC start-turn fallback to app-server: ${
+          error && error.message ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  const appServerResult = await threadSync.startTurn(threadId, input, body);
+  return {
+    via: "app-server",
+    ...(ipcError
+      ? {
+          desktopIpcFallbackReason: {
+            code: ipcError.code || null,
+            message: String(ipcError && ipcError.message ? ipcError.message : ipcError),
+          },
+        }
+      : {}),
+    ...appServerResult,
+  };
+}
+
 async function decorateThreadListWithTitles(threads) {
   if (!Array.isArray(threads) || threads.length === 0) return [];
   const ids = threads
@@ -1567,6 +1701,53 @@ async function decorateThreadListWithTitles(threads) {
       workspaceLabel: resolveWorkspaceLabelForThread(thread, globalMetadata),
     });
   });
+}
+
+function compactThreadListItem(thread) {
+  if (!thread || typeof thread !== "object") return thread;
+  return compactObject({
+    id: thread.id,
+    forkedFromId: thread.forkedFromId || thread.forked_from_id || null,
+    preview: truncateListText(thread.preview, 240),
+    ephemeral: thread.ephemeral,
+    modelProvider: thread.modelProvider || thread.model_provider || null,
+    createdAt: thread.createdAt || thread.created_at || null,
+    updatedAt: thread.updatedAt || thread.updated_at || null,
+    status: thread.status || null,
+    inProgress: thread.inProgress === true ? true : null,
+    running: thread.running === true ? true : null,
+    cwd: thread.cwd || null,
+    source: thread.source || null,
+    agentNickname: truncateListText(
+      thread.agentNickname || thread.agent_nickname,
+      120
+    ),
+    agentRole: truncateListText(thread.agentRole || thread.agent_role, 80),
+    archived: thread.archived,
+    name: truncateListText(thread.name, 180),
+    title: truncateListText(thread.title, 180),
+    displayName: truncateListText(thread.displayName, 180),
+    workspaceLabel: truncateListText(thread.workspaceLabel, 120),
+    workspaceName: truncateListText(thread.workspaceName, 120),
+    projectName: truncateListText(thread.projectName, 120),
+  });
+}
+
+function truncateListText(value, maxLength) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const limit = Math.max(16, Number(maxLength) || 120);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function compactObject(input) {
+  const output = {};
+  for (const [key, value] of Object.entries(input || {})) {
+    if (value === null || value === undefined) continue;
+    output[key] = value;
+  }
+  return output;
 }
 
 async function decorateThreadWithTitle(thread) {
@@ -1873,6 +2054,48 @@ async function resolveThreadUsageForThread(threadId, thread) {
   return null;
 }
 
+async function resolveThreadRunDefaultsForThread(threadId, thread) {
+  const fromFile = await readThreadRunDefaultsFromRolloutPath(thread);
+  if (fromFile && (fromFile.model || fromFile.effort)) {
+    return fromFile;
+  }
+  return desktopIpcMonitor
+    ? desktopIpcMonitor.getThreadRunDefaults(String(threadId))
+    : null;
+}
+
+async function readThreadRunDefaultsFromRolloutPath(thread) {
+  const filePath = resolveThreadRolloutPath(thread);
+  if (!filePath) return null;
+
+  let stat = null;
+  try {
+    stat = await fsp.stat(filePath);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile() || stat.size <= 0) return null;
+
+  const cached = threadRunDefaultsFileCache.get(filePath);
+  if (
+    cached &&
+    cached.size === stat.size &&
+    cached.mtimeMs === stat.mtimeMs &&
+    cached.runDefaults
+  ) {
+    return cached.runDefaults;
+  }
+
+  const runDefaults = await readLatestRunDefaultsFromJsonlTail(filePath, stat.size);
+  setThreadRunDefaultsFileCache(filePath, {
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    runDefaults: runDefaults || null,
+    checkedAt: Date.now(),
+  });
+  return runDefaults;
+}
+
 async function readThreadUsageFromRolloutPath(thread) {
   const filePath = resolveThreadRolloutPath(thread);
   if (!filePath) return null;
@@ -1959,6 +2182,48 @@ async function readLatestTokenUsageFromJsonlTail(filePath, fileSize) {
   return null;
 }
 
+async function readLatestRunDefaultsFromJsonlTail(filePath, fileSize) {
+  const size = Number(fileSize || 0);
+  if (!Number.isFinite(size) || size <= 0) return null;
+
+  for (const windowBytes of THREAD_USAGE_TAIL_WINDOWS) {
+    const readBytes = Math.min(size, windowBytes);
+    const buffer = Buffer.alloc(readBytes);
+    let handle = null;
+    try {
+      handle = await fsp.open(filePath, "r");
+      await handle.read(buffer, 0, readBytes, size - readBytes);
+    } catch {
+      if (handle) {
+        try {
+          await handle.close();
+        } catch {
+          // noop
+        }
+      }
+      return null;
+    } finally {
+      if (handle) {
+        try {
+          await handle.close();
+        } catch {
+          // noop
+        }
+      }
+    }
+
+    const text = buffer.toString("utf8");
+    const lines = text.split("\n");
+    if (readBytes < size && lines.length > 0) {
+      lines.shift();
+    }
+    const runDefaults = extractRunDefaultsFromJsonlLines(lines);
+    if (runDefaults) return runDefaults;
+    if (readBytes >= size) break;
+  }
+  return null;
+}
+
 function extractTokenUsageFromJsonlLines(lines) {
   if (!Array.isArray(lines) || lines.length === 0) return null;
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -1983,6 +2248,51 @@ function extractTokenUsageFromJsonlLines(lines) {
   return null;
 }
 
+function extractRunDefaultsFromJsonlLines(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = String(lines[i] || "").trim();
+    if (!line) continue;
+    let entry = null;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!entry || entry.type !== "turn_context") continue;
+    const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : null;
+    if (!payload) continue;
+    const collaborationSettings =
+      payload.collaboration_mode &&
+      payload.collaboration_mode.settings &&
+      typeof payload.collaboration_mode.settings === "object"
+        ? payload.collaboration_mode.settings
+        : {};
+    const model =
+      typeof payload.model === "string" && payload.model.trim()
+        ? payload.model.trim()
+        : typeof collaborationSettings.model === "string" &&
+          collaborationSettings.model.trim()
+        ? collaborationSettings.model.trim()
+        : null;
+    const effort =
+      typeof payload.effort === "string" && payload.effort.trim()
+        ? payload.effort.trim()
+        : typeof collaborationSettings.reasoning_effort === "string" &&
+          collaborationSettings.reasoning_effort.trim()
+        ? collaborationSettings.reasoning_effort.trim()
+        : null;
+    if (model || effort) {
+      return {
+        model,
+        effort,
+        updatedAt: entry.timestamp || null,
+      };
+    }
+  }
+  return null;
+}
+
 function setThreadUsageFileCache(filePath, entry) {
   threadUsageFileCache.set(filePath, entry);
   if (threadUsageFileCache.size <= THREAD_USAGE_FILE_CACHE_MAX) return;
@@ -1997,6 +2307,23 @@ function setThreadUsageFileCache(filePath, entry) {
   }
   if (oldestKey) {
     threadUsageFileCache.delete(oldestKey);
+  }
+}
+
+function setThreadRunDefaultsFileCache(filePath, entry) {
+  threadRunDefaultsFileCache.set(filePath, entry);
+  if (threadRunDefaultsFileCache.size <= THREAD_USAGE_FILE_CACHE_MAX) return;
+  let oldestKey = "";
+  let oldestTime = Number.POSITIVE_INFINITY;
+  for (const [key, value] of threadRunDefaultsFileCache.entries()) {
+    const checkedAt = Number(value && value.checkedAt ? value.checkedAt : 0);
+    if (checkedAt < oldestTime) {
+      oldestTime = checkedAt;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) {
+    threadRunDefaultsFileCache.delete(oldestKey);
   }
 }
 
@@ -2137,11 +2464,13 @@ async function bootstrap() {
     indexPath: MEDIA_INDEX,
     maxImageBytes: MAX_IMAGE_MB * 1024 * 1024,
   });
+  desktopIpcMonitor = createDesktopIpcMonitorFromEnv(process.env);
   threadSync = new ThreadSyncService({
     rpc,
     listPollMs: THREAD_LIST_POLL_MS,
     activePollMs: THREAD_READ_POLL_ACTIVE_MS,
     idlePollMs: THREAD_READ_POLL_IDLE_MS,
+    desktopIpcMonitor,
   });
   desktopNudge = new DesktopNudge({
     mode: DESKTOP_NUDGE_MODE,
@@ -2165,6 +2494,7 @@ async function bootstrap() {
   setupApprovalReminderLoop();
   await mediaService.init();
   await rpc.start();
+  desktopIpcMonitor.start();
   threadSync.start();
 
   server.listen(PORT, BIND_HOST, () => {
@@ -2191,6 +2521,7 @@ async function bootstrap() {
       ].join("\n")
     );
     startHttpRedirectServerIfNeeded();
+    startLocalHttpPreviewServerIfNeeded();
   });
 }
 

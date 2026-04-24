@@ -1,317 +1,267 @@
 # phone-codex
 
-macOS 菜单栏控制器 + 本地网页：把 Codex 线程同步到手机网页端，并实现 Web -> Desktop 实时同步（无需手动刷新 thread）。
+当前仓库只保留“简化版”主线：
 
-## 新线程一句话（必备）
+- [Start-Phone-Codex.command](./Start-Phone-Codex.command)
+- [Stop-Phone-Codex.command](./Stop-Phone-Codex.command)
+- [server.js](./server.js)
+- [src/bridge/bridge-app.js](./src/bridge/bridge-app.js)
 
-开新线程时，直接发这句：
+旧的 Electron 桌面 App 版已经淘汰，不再作为本项目的运行方式，也不再维护。当前方向和标准是网页版：
 
-`先看本目录 CHANGELOG.md 和 THREAD-HANDOFF-2026-02-19.md，再继续。`
+- 旧桌面 App 源码归档于 [archive/legacy-desktop-app/desktop](./archive/legacy-desktop-app/desktop)
+- 旧桌面 App 的 macOS 发布工作流归档于 [archive/legacy-desktop-app/.github/workflows/release.yml](./archive/legacy-desktop-app/.github/workflows/release.yml)
 
-这样新线程会先读取修改历史和交接重点，避免重复排查。
+当前默认目标很明确：
 
-## 更新说明 / Release Notes (v1.0)
+- 手机网页可以正常收发消息
+- 手机网页发送后的结果，以手机网页端显示为准
+- 不再追求“手机发消息后，Codex 桌面客户端必须实时同步刷新”
 
-### 中文
+## 快速启动
 
-- 本版本继续沿用 HTTPS 主方案（替代旧 HTTP 路径）。
-- 网页端输入能力为“文本 + 图片”，语音录制/上传已移除。
-- 手机网页发送区升级为图标化操作（图片/发送），并优化为紧凑布局。
-- 左侧栏布局已压缩：`新建 Thread + 刷新` 同行；`语言 + 主题` 同行展示。
-- 线程标题与项目分组名称已优先同步 Codex 的真实命名（含你在 Codex 中手动修改后的名称）。
-- 文档补充了中英文“最新使用说明”，并清理了仓库中的个人信息暴露风险项。
+1. 在仓库根目录双击运行 [Start-Phone-Codex.command](./Start-Phone-Codex.command)。
+2. 用手机打开脚本输出的 `Setup URL`，或者直接扫描脚本弹出的二维码。
+3. 停止服务时，运行 [Stop-Phone-Codex.command](./Stop-Phone-Codex.command)。
 
-### English
+## 默认手机访问地址
 
-- This release continues with HTTPS as the default (replacing the legacy HTTP path).
-- The web composer supports text + image only; voice recording/upload has been removed.
-- Mobile web composer controls are icon-based (image/send) with a compact layout.
-- Sidebar layout is tightened: `New Thread + Refresh` are inline, and `Language + Theme` are shown side-by-side.
-- Thread titles and project group names now prefer Codex-native naming (including user-renamed titles).
-- Updated bilingual usage docs are included, and privacy-exposed strings were sanitized.
+脚本现在会优先把手机入口设为以下顺序：
 
-## 最新版本使用说明 / Latest Usage Guide
+1. `Tailscale IPv4`
+2. `MagicDNS`
+3. `LAN IPv4`
+4. `127.0.0.1`
 
-### 中文
+也就是说，如果当前机器的 Tailscale IPv4 是 `<TAILSCALE-IP>`，那么扫码后的默认基址就是：
 
-1. 在仓库根目录双击运行 `Start-Phone-Codex.command`。  
-2. 终端出现 `Phone URL` 或 `Setup URL` 后，用手机打开对应地址（优先扫码）。  
-3. 手机网页侧栏中：  
-   - `新建 Thread` 与 `刷新` 在同一行；  
-   - `语言` 与 `主题` 开关在同一行。  
-4. 发送区使用图标按钮：上方图片、下方发送；支持文本 + 图片发送。  
-5. 若网页未更新，手机端请强制刷新（建议清缓存后刷新）。
+`https://<TAILSCALE-IP>:8787`
 
-### English
+网页“设置 -> 快速选择地址”里，也会优先显示这个 Tailscale 地址。
 
-1. From the repository root, run `Start-Phone-Codex.command`.  
-2. When terminal prints `Phone URL` or `Setup URL`, open it on your phone (QR is preferred).  
-3. In the mobile sidebar:  
-   - `New Thread` and `Refresh` are inline;  
-   - `Language` and `Theme` are side-by-side.  
-4. Composer uses icon controls (image on top, send below) and supports text + image.  
-5. If UI changes do not appear, force-refresh on phone (clear cache first).
+## 当前运行方式
 
-## 历史版本 / Previous (v0.3.7)
-
-### 中文
-
-- 桌面控制页重构为双页面签：`界面` / `日志`，默认打开“界面”，首屏不再被日志挤占。
-- 顶部语言选择改为滑块：`中文 <-> English`，切换更直观。
-- 卡片顺序优化：`设备绑定`（含二维码）前置，更符合实际高频操作路径。
-- `手机访问地址` 区域改为高级项默认展开，减少额外点击。
-- 首次打开窗口尺寸优化：按屏幕工作区自适应更大初始尺寸，默认显示更完整。
-
-### English
-
-- Desktop control panel redesigned into two tabs: `Control` / `Logs`; default opens `Control` so logs no longer squeeze the main view.
-- Language selector changed to a direct toggle: `中文 <-> English`.
-- Card order optimized: `Device Binding` (with QR) is moved earlier for the primary workflow.
-- `Phone URL` advanced settings are now expanded by default to reduce extra clicks.
-- Initial window size is now adaptive to screen work area, so first open shows a more complete layout.
-
-### 历史版本 / Previous (v0.3.4)
-
-#### 中文
-
-- 布局优化：把“语言切换 + 主题切换”从顶部工具区移入 `MENU` 侧栏，移动端顶栏更简洁，不再拥挤。
-- 交互优化：顶部按钮文案固定显示 `MENU`（不随语言变化），中英用户都能直接识别入口。
-- 语言逻辑优化：语言切换项采用“目标语言显示”：
-  - 当前页面中文时，显示 `English`
-  - 当前页面英文时，显示 `中文`
-- 修复：发送区在添加图片后，输入框仍可持续输入文字（附件区并入 composer，且选图后自动聚焦输入框）。
-- 保留既有安全策略：`Sync OFF / Emergency Disable` 仍可一键解除 WS 绑定，避免 Codex 1006 锁死。
-
-#### English
-
-- Layout update: moved `Language + Theme` switches from the top tools area into the `MENU` sidebar, so mobile top bar is no longer crowded.
-- Interaction update: top-left button label is now always `MENU` (not translated), improving discoverability for both Chinese and English users.
-- Language switch logic: now shows the target language:
-  - Chinese UI shows `English`
-  - English UI shows `中文`
-- Fix: after attaching images, the text input remains usable (attachments are rendered inside composer, and image-pick auto-focuses the textarea).
-- Safety unchanged: `Sync OFF / Emergency Disable` still guarantees WS unbind to prevent Codex 1006 lock.
-
-### 历史版本 / Previous (v0.3.3)
-
-- 上下文圆环与额度展示口径修正（含旧线程兜底读取 `rollout-*.jsonl`）。
-
-## 快速使用 / Quick Start
-
-### 中文
-
-1. 下载并打开 `phone-codex.app`。  
-2. 在控制页打开 `Sync ON`。  
-3. 完全退出 Codex（`Cmd+Q`）并从 Dock 重新打开。  
-4. 用手机扫码控制页二维码访问网页端。  
-5. 若遇到 1006，点击 `Emergency Disable`，再重开 Codex。
-
-### English
-
-1. Open `phone-codex.app`.  
-2. Turn `Sync ON` in the control panel.  
-3. Fully quit Codex (`Cmd+Q`) and reopen it from Dock.  
-4. Scan the QR code from your phone to open the web UI.  
-5. If 1006 appears, click `Emergency Disable`, then reopen Codex.
-
-## 你会得到什么
-
-- `phone-codex.app`：菜单栏有图标，点开控制页
-- 控制页支持 `中文 / English` 一键切换（语言选择会持久化）
-- `Sync ON/OFF` 一键开关同步：
-  - ON：启动本地网页（手机可访问）+ 启动 WS 代理，并把 Codex 桌面端“下一次启动”引导到同一条事件流
-  - OFF：停止服务 + 清掉环境变量，彻底解除“WS 绑定”
-- `Emergency Disable`：一键解除任何可能导致 `1006` 的 WS 绑定（并停止服务）
-
-重要约束（按你的要求）：
-- phone-codex **不会**代替你打开 Codex；Codex 必须由你自己从 Dock/Finder 打开/重启。
-
-## 为什么需要 WS 代理（核心原理）
-
-我们已在本机验证：`codex app-server` 在 WebSocket 模式下，对“多连接”并不稳定广播所有事件（可能看到 `turn/started` 但收不到 `turn/completed`）。
-
-因此 phone-codex 采用 **Multiplex WS 代理**：
-- 下游（多个客户端）：Codex 桌面端 + 本地网页 bridge 都连到同一个代理 `ws://127.0.0.1:<proxyPort>`
-- 上游（单连接）：代理只维护一条到 `codex app-server` 的连接（stdio）
-- 上游通知由代理广播给所有下游，从而实现真正实时一致
-
-## 修复“Desktop 显示旧指令但执行新指令”
-
-如果你遇到：手机网页发的指令可以被 Codex 正确执行/回答，但 Codex 桌面端对话里显示的 user prompt 仍是上一条旧指令。
-
-phone-codex 的修复方式是：对 Codex Desktop 也注入 overlay，但只注入 **`turn/start` 响应已确认 turnId 的权威 overlay**（避免 N-1/错配）。
-
-对应设置在控制页 `Advanced -> Desktop Overlay`：
-- `Authoritative`（默认，推荐）：仅注入权威 overlay（最稳定）
-- `Off`：关闭 Desktop overlay 注入（仅用于排障）
-
-## 安全性：不再“绑死”Codex
-
-导致 `Sign-in failed ... websocket closed (1006)` 的典型原因是：把 `CODEX_APP_SERVER_WS_URL` **全局注入**到 launchd，且当时 ws 端口不可用或握手失败。
-
-另外我们已在本机验证：Codex 桌面端在 websocket transport 下，会**强制通过本机 SOCKS5**（`127.0.0.1:1080`）去连接 app-server；若该端口没有可用 SOCKS 服务，会直接在 Codex 里看到 `1006`。
-
-phone-codex 的策略：
-- 不安装任何“常驻注入 env”的 LaunchAgent
-- 仅在 `Sync ON` 且预检通过时才 `launchctl setenv CODEX_APP_SERVER_WS_URL ...`
-- `Sync OFF`、`Emergency Disable`、以及 phone-codex 退出时都会 `launchctl unsetenv ...`
-- 运行中若代理异常，自动回滚并清 env，避免你下次从 Dock 打开 Codex 直接 1006
-- `Sync ON` 时会启动一个**受限的本机 SOCKS5**（只允许连到 `127.0.0.1:<proxyPort>`），`Sync OFF` 时停止
-
-## 已知问题：非 ASCII 路径可能导致 Codex upstream 连接失败
-
-如果日志里出现 `x-codex-turn-metadata` / `UTF-8 encoding error`，这通常是 Codex 上游实现的限制：HTTP header 需要 ASCII，但 workspace 路径里包含中文等非 ASCII 字符。
-
-Workaround：把本仓库移动/重命名到纯 ASCII 路径（例如 `/Users/<you>/Documents/phone-codex`），然后重启 `Sync ON`。
-
-## 使用方式（推荐：App）
-
-1. 从 GitHub Releases 下载并安装 `phone-codex`（.dmg/.zip）
-2. 打开 `phone-codex.app`（菜单栏会出现图标）
-3. 在控制页里把 `Sync` 打开（ON）
-   - 如果提示端口被占用（如 `18791`/`8787`），请在控制页 `Advanced` 里修改端口，或先停止旧的服务再开启。
-4. 按提示：在 Codex 里 `Cmd+Q` 彻底退出，然后从 Dock 重新打开 Codex
-5. 扫描控制页的二维码，用手机打开网页端，开始发消息
-
-如果 Codex 打开时出现 `1006`：
-1. 打开 phone-codex 控制页
-2. 点 `Emergency Disable`
-3. 重新打开 Codex（应恢复正常）
-
-## 外网访问（Tailscale）
-
-phone-codex 支持“局域网 + Tailscale 外网访问”并行使用，默认远程模式为 `tailscale`。
-
-1. 在 Mac 与手机上安装并登录 Tailscale（同一 tailnet）
-2. 在 phone-codex 控制页确认：
-   - `Bind Host = 0.0.0.0`
-   - `Remote Mode = tailscale`
-3. 点击 `Sync ON`
-4. 控制页 `Remote Access` 卡片会显示：
-   - Tailscale 连接状态
-   - Tailscale IPv4 / MagicDNS
-   - 可复制的远程 URL
-5. 手机切到 4G/5G 时，确保手机端 Tailscale 已连接，然后访问远程 URL
-
-说明：
-- bridge 会按 `ALLOWED_CLIENT_CIDRS` 做来源 IP 白名单校验；默认只允许本机、私网和 tailnet 网段。
-- 即使误配了路由器端口映射，非白名单来源也会被 `403` 拒绝。
-
-## 首次配对与单手机绑定（默认 strict）
-
-从当前版本开始，手机网页默认使用“设备签名认证”，不再依赖共享 token URL：
-
-- 首次使用：
-  1. 在桌面 `phone-codex` 控制页点 `Start Pairing`
-  2. 手机打开配对链接（二维码）并输入桌面显示的 6 位验证码
-  3. 配对成功后，手机会保存 `deviceId + deviceSecret`，后续 API 都用签名鉴权
-- 绑定策略：
-  - 同时只允许 1 台手机（再次配对会顶掉旧设备）
-- 配对网络限制：
-  - 仅允许同 LAN 或同 Tailnet 来源完成配对
-- 丢手机恢复：
-  - 在桌面控制页点 `Reset Binding`，旧手机立即失效，再重新配对
-
-鉴权协议（v3）：
-- Header（普通 API）：
-  - `X-Device-Id`
-  - `X-Device-Timestamp`
-  - `X-Device-Nonce`
-  - `X-Device-Signature`
-- SSE（`/api/v2/events`）：
-  - 使用 query 参数：`deviceId` / `ts` / `nonce` / `sig`
-- 校验：
-  - 时间窗 ±90 秒
-  - nonce 10 分钟内不可复用
-  - 签名算法：`HMAC-SHA256`
-
-## 外网排障
-
-- `Remote Access` 显示 `tailscale not installed`：
-  - 安装 Tailscale 或在设置中改 `tailscale CLI Path`
-- `tailscale not connected`：
-  - 打开 Tailscale 客户端并确保 `status` 为 Running
-- 控制页有 URL 但手机打不开：
-  - 检查手机是否连上同一 tailnet
-  - 检查 `Bind Host` 是否误设为 `127.0.0.1`
-  - 检查控制页 `Allowed CIDRs` 是否把 tailnet 网段（`100.64.0.0/10`）去掉了
-
-## 紧急回滚
-
-1. 在控制页点击 `Emergency Disable`
-2. 确认 `Sync OFF`
-3. 如 Codex 仍异常，`Cmd+Q` 退出后重新打开 Codex
-
-这样会清除 `CODEX_APP_SERVER_WS_URL` 绑定并停止代理，恢复普通启动路径。
-
-## 纯脚本启动与手机初始化（自动二维码）
-
-如果你不想先打开桌面控制面板，也可以直接双击：
-
-`Start-Phone-Codex.command`
-
-启动成功后，脚本会输出并自动打开：
-- `Local URL / Phone URL / Tailscale / MagicDNS`
-- `Setup URL`（短链接，扫码更稳定）
-- `Setup QR`（二维码图片），手机相机扫码即可打开已预配置的网页端
-
-说明：
-- 同局域网优先使用 `Phone URL`（`Quick LAN`）。
-- 外网优先使用 `Tailscale IPv4` 或 `MagicDNS`（`Quick TSIP` / `Quick DNS`）。
-- 若使用自签证书，手机可能需要先信任证书后才能正常进入页面。
-
-### 去掉证书警告（推荐：`TLS_MODE=custom`）
+推荐使用：
 
 ```bash
-cp launcher.env.custom.example launcher.env
-```
-
-只需编辑两个路径：
-- `TLS_CERT_FILE=/absolute/path/to/fullchain.pem`
-- `TLS_KEY_FILE=/absolute/path/to/privkey.pem`
-
-然后重新启动：
-
-```bash
-./Stop-Phone-Codex.command
 ./Start-Phone-Codex.command
 ```
 
-## 开发与 CLI（Advanced）
-
-### 运行 bridge（网页）CLI
+如需手工启动 bridge：
 
 ```bash
-cp .env.example .env
 npm install
 npm start
 ```
 
-常用环境变量：
-- `PORT=8787`
-- `BIND_HOST=0.0.0.0`（手机访问）或 `127.0.0.1`（仅本机）
-- `HTTPS_ENABLED=1`（旧 HTTP 方案已废弃；建议全程 HTTPS）
-- `HTTPS_CERT_FILE=/path/to/cert.pem`
-- `HTTPS_KEY_FILE=/path/to/key.pem`
-- `HTTPS_REDIRECT_PORT=0`（可选，>0 时额外启用 http->https 跳转端口）
-- `ALLOWED_CLIENT_CIDRS=127.0.0.1/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7`
-- `REMOTE_MODE=tailscale|off`
-- `DEVICE_AUTH_MODE=strict|hybrid|off`（默认 strict）
-- `LEGACY_TOKEN_MODE=off|on`（默认 off）
-- `PAIRING_CODE_LENGTH=6`
-- `PAIRING_TTL_SEC=300`
-- `PAIRING_NETWORK_CIDRS=10.0.0.0/8,...`
-- `DEVICE_AUTH_STATE_PATH=./data/device-binding.json`
+## 当前行为说明
 
-### 运行桌面 App（Electron）
+- 默认启用 HTTPS。
+- 默认远程模式为 `tailscale`。
+- 默认启用温和桌面刷新：`DESKTOP_NUDGE_MODE=frontmost`，仅在 Codex 桌面端已处于前台时轻触刷新，不主动抢焦点；如需完全关闭可设为 `off`。
+- 当前这条主线不依赖旧桌面 App，不需要 `Sync ON/OFF`、菜单栏控制页，也不需要 Electron 打包产物。
 
-```bash
-npm install
-cd desktop
-npm install
-npm run dev
+## 当前网页版本记录（v1.1.0，2026-04-24）
+
+这一版网页端定位为“临时、轻量、手机可用”的 Codex 控制台，不再追求把 Codex 桌面端完整搬到手机上。
+
+当前入口：
+
+- 本机预览：`http://127.0.0.1:8786/`
+- 本机 HTTPS：`https://127.0.0.1:8787/`
+- 局域网手机入口：启动脚本输出的 `https://<LAN-IP>:8787/`
+
+本轮主要改动：
+
+- 侧边栏只保留高频入口：`新建 Thread`、`刷新`、额度圆环、单线程锁定按钮、项目和线程列表。
+- `语言`、`主题`、线程关键词搜索已移除。语言跟随浏览器/系统语言；主题跟随系统主题。
+- `来源 / 包含归档 / 桌面一致视图` 收入“高级筛选”，默认不打扰常用界面。
+- 额度显示改为 5H / 7D 两个圆环；“剩余额度”文字已移除。
+- `解除单线程锁定` 按钮和额度圆环并排放在同一块区域，减少纵向空间占用。
+- 线程列表不再显示线程 id / source / provider 等元数据，避免占空间。
+- 线程下方的 `改名 / 归档 / 分叉 / 复制ID` 操作入口已移除。网页端保持简单，不做复杂线程管理。
+- 正在运行的线程不显示“运行中”标签，只通过浮起卡片样式区分。
+- 审批请求改为更收敛的提示/面板，不再长期挤占主界面。
+- 大项目展开后默认只显示 5 个线程，可用“展开全部 / 收起到 5 个”切换，减少侧边栏拥挤。
+
+当前验证状态：
+
+- `npm test` 通过，当前测试数为 43。
+- `node --check public/app.js`、`node --check src/thread-service.js`、`node --check src/bridge/bridge-app.js` 通过。
+- `http://127.0.0.1:8786/api/health` 返回 `ok: true`。
+- 已在网页 DOM 验证：正在运行线程会获得 `.thread-item.is-running`；不会出现 `.thread-running-badge`。
+
+## 新版 Codex 适配与踩坑记录
+
+### 1. `thread/list` / `thread/read` 不是实时运行态
+
+新版 Codex 下，`thread/list` 和 `thread/read` 经常返回：
+
+```text
+status.type = notLoaded
 ```
 
-## GitHub Actions（Release）
+即使线程正在桌面端运行，也可能没有 `turn.status = inProgress`。原因是当前正在执行的 turn 不一定已经写入落盘历史；`thread/read` 读到的是已持久化历史，不是桌面主界面的实时内存状态。
 
-本仓库包含 macOS 打包工作流：构建 `phone-codex.app` 并产出 `.dmg/.zip`。
+所以这版网页端不能只靠 `thread.turns[].status === "inProgress"` 判断运行中。
+
+### 2. `thread/loaded/list` 不能代表桌面主界面
+
+曾经尝试用 Codex App Server 的 `thread/loaded/list` 判断已加载线程，但 phone-codex 自己启动的是独立 app-server 进程。它返回的是“本 bridge 进程自己加载的线程”，不是 Codex 桌面主界面里的线程。
+
+结论：不要把 phone-codex 的独立 app-server 当成桌面端运行态来源。
+
+### 3. 当前运行态检测方案是 best-effort
+
+当前实现位于 [src/thread-service.js](./src/thread-service.js)：
+
+- 保留原来的网页端 watch / `inProgress` 判断。
+- 额外扫描 Codex 桌面主进程打开的 `.codex/sessions/.../rollout-*.jsonl`。
+- 只把仍有活跃尾部事件、且没有 `final_answer` / `task_complete` 收尾的会话视为运行中。
+- 该状态会被合并进 `/api/v2/threads` 和 `/api/v2/threads/:id`，让普通列表和单线程锁定视图都能显示浮起卡片。
+
+这个方案能覆盖当前桌面侧边栏转圈但 API 返回 `notLoaded` 的情况，但它仍是本地运行态推断，不是 OpenAI 明确承诺的稳定协议字段。
+
+### 4. 桌面端实时同屏仍不是完整支持
+
+手机网页端可以发送消息、执行命令、显示结果。Codex 桌面端同一个 thread 不一定实时同屏刷新手机端发出的命令和输出。
+
+当前只保留温和桌面刷新：
+
+```text
+DESKTOP_NUDGE_MODE=frontmost
+```
+
+也就是 Codex 桌面端已经在前台时，轻触刷新；不主动抢焦点。
+
+### 5. Codex Desktop IPC 只读观察模式
+
+2026-04-24 起，phone-codex 增加了第一阶段 Codex Desktop IPC 观察模式：
+
+- 新增 [src/desktop-ipc-client.js](./src/desktop-ipc-client.js)：只负责连接官方 Codex 桌面端 IPC socket、握手和接收 frame。
+- 新增 [src/desktop-ipc-monitor.js](./src/desktop-ipc-monitor.js)：监听 `thread-stream-state-changed`，维护 `threadId -> ownerClientId / running`。
+- 当前阶段只读，不发送 `thread-follower-start-turn`，所以不会改变网页端原有发消息链路。
+- `/api/health` 会显示 `desktopIpc` 状态，包括 socket、连接、初始化、clientId、线程数、running 线程数。
+- 线程列表会把 IPC 观察到的 running 状态合并进去；如果 IPC 不可用，仍保留原来的 app-server / lsof rollout 兜底逻辑。
+
+默认配置：
+
+```text
+CODEX_DESKTOP_IPC_ENABLED=1
+CODEX_DESKTOP_IPC_SOCKET_PATH=<自动使用 os.tmpdir()/codex-ipc/ipc-<uid>.sock>
+CODEX_DESKTOP_IPC_RECONNECT_MS=2000
+```
+
+### 6. Codex Desktop IPC 优先发送模式
+
+2026-04-24 第二阶段起，网页端发送 turn 的链路改为：
+
+1. 如果 `CODEX_DESKTOP_IPC_SEND_MODE=prefer`，且 IPC 已经观察到当前 thread 的 `ownerClientId`，优先发送 IPC 请求：
+
+```text
+thread-follower-start-turn
+```
+
+2. 该请求会带上：
+
+```text
+targetClientId = ownerClientId
+conversationId = threadId
+turnStartParams = 当前输入 + 最新桌面 thread 参数模板
+```
+
+3. 如果 IPC 不可用、没有 owner、桌面端返回错误或请求超时，自动回退原来的 app-server `turn/start`。
+4. 回退时 HTTP 响应会包含 `desktopIpcFallbackReason`，方便排障。
+
+当前默认：
+
+```text
+CODEX_DESKTOP_IPC_SEND_MODE=prefer
+CODEX_DESKTOP_IPC_REQUEST_TIMEOUT_MS=20000
+```
+
+如果 IPC 协议因 Codex 升级失效，可在 `launcher.env` 中临时关闭发送模式：
+
+```text
+CODEX_DESKTOP_IPC_SEND_MODE=off
+```
+
+只读 IPC 观察仍可继续用于 running 状态；如需彻底关闭 IPC：
+
+```text
+CODEX_DESKTOP_IPC_ENABLED=0
+```
+
+## 回滚与备份
+
+重要备份目录：
+
+- UI 简化前备份：`data/runtime/backups/phone-codex-ui-simplify-20260423-233637`
+- 运行态检测改造前备份：`data/runtime/backups/phone-codex-running-detect-20260424-002033`
+- IPC 只读观察模式改造前备份：`data/runtime/backups/phone-codex-ipc-phase1-20260424-013129`
+- IPC 优先发送模式改造前备份：`data/runtime/backups/phone-codex-ipc-phase2-send-20260424-013954`
+
+如果运行态检测或 UI 改动出问题，优先从上述备份目录恢复以下文件：
+
+- [public/app.js](./public/app.js)
+- [public/styles.css](./public/styles.css)
+- [src/thread-service.js](./src/thread-service.js)
+
+## 外部 Codex 手机端生态观察（2026-04-24）
+
+当前没有看到 OpenAI 官方发布“用于远程操控本地 Codex Desktop / App Server”的独立 iOS/Android 手机客户端。官方移动端相关信息主要是 ChatGPT iOS 里的 Codex Cloud 入口：可以在手机上启动任务、看 diff、推 PR，但它不是本项目这种连接本机 Codex 桌面/本机 app-server 的控制台。
+
+有价值的外部线索：
+
+- OpenAI 官方说明：Codex App Server 是 Codex 各客户端的核心协议层，适合自建客户端；不同客户端通过 JSON-RPC / stdio 等方式接入同一个 harness。
+  - <https://openai.com/index/unlocking-the-codex-harness/>
+- OpenAI 官方 Codex App 发布页写明：Codex app 首发为 macOS；ChatGPT 订阅用户可在 CLI、Web、IDE extension、app 中使用 Codex。
+  - <https://openai.com/index/introducing-the-codex-app/>
+- OpenAI Codex Changelog 记录了 Windows 版 Codex app，也记录过 “Codex in the ChatGPT iOS app”。后者定位是手机上启动云端任务、查看 diff、推 PR。
+  - <https://developers.openai.com/codex/changelog>
+- GitHub 上有人提 feature request：希望有移动 app 可以从手机控制本地电脑上的 Codex。
+  - <https://github.com/openai/codex/issues/10816>
+- GitHub 上还有更明确的 remote-control request：希望从手机上的 ChatGPT/Codex tab 控制桌面 PC 上运行的 Codex。
+  - <https://github.com/openai/codex/issues/9224>
+- Reddit 上已经出现第三方/个人方案，方向大致分三类：手机 Web UI 控制本地 app-server、手机 App 桥接桌面 Codex、Android/Termux/APK 内运行 Codex CLI。
+  - <https://www.reddit.com/r/codex/comments/1rgkwji/built_a_mobile_app_to_use_codex_app_from_my_phone/>
+  - <https://www.reddit.com/r/OpenAI/comments/1s7t3kg/how_codex_works_under_the_hood_app_server_remote/>
+  - <https://www.reddit.com/r/codex/comments/1rlixy2/codex_app_on_android/>
+- GitHub 上已有第三方开源 Web/手机控制项目，例如 codexUI 和 RemCodex；它们也都是“本地 Codex + 浏览器/手机轻客户端”的方向。
+  - <https://github.com/friuns2/codexui>
+  - <https://github.com/lupishan/remcodex>
+- App Store 上已有第三方“Mobile IDE for Codex AI GPT”，描述为连接 Mac 上运行的 Codex，但这不是 OpenAI 官方 App。
+  - <https://apps.apple.com/us/app/mobile-ide-for-codex-ai-gpt/id6761128531>
+
+对本项目的判断：
+
+- phone-codex 当前路线是合理的：用网页端做轻量控制台，比维护完整原生手机 App 更稳。
+- 官方移动端 Codex 更偏云端任务；第三方生态更偏“本地/桌面 App Server + 手机轻客户端”。本项目属于后者。
+- 真正的难点不是手机 UI，而是运行态、审批、权限、历史同步和桌面端同屏一致性。
+
+## 已知问题
+
+如果仓库路径包含中文等非 ASCII 字符，Codex 上游可能报：
+
+- `x-codex-turn-metadata`
+- `UTF-8 encoding error`
+
+例如当前路径：
+
+`/Users/mac/Documents/OpenClaw信息`
+
+这类问题是 Codex 上游实现限制，不是手机网页本身的问题。若要彻底规避，请把仓库移动到纯英文路径，例如：
+
+`/Users/mac/Documents/phone-codex`
+
+## 开发说明
+
+- 当前主入口是 [server.js](./server.js)
+- 主要 HTTP / SSE / 线程逻辑在 [src/bridge/bridge-app.js](./src/bridge/bridge-app.js)
+- 手机网页前端在 [public/app.js](./public/app.js)
+
+## 归档说明
+
+如果以后需要回看旧桌面 App 实现，只读归档，不要把它当成当前主线：
+
+- [archive/legacy-desktop-app/README.md](./archive/legacy-desktop-app/README.md)

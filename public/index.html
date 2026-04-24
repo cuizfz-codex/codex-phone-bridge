@@ -10,43 +10,37 @@
     <div class="shell">
       <aside id="sidebar" class="sidebar">
         <header class="sidebar-top">
-          <div>
-            <h1>Codex Threads</h1>
-            <p class="sub" data-i18n="sidebar.subtitle">手机端控制台</p>
+          <div
+            id="quota-widget"
+            class="quota-widget sidebar-quota-widget"
+            title="Codex 限额剩余（来自 account/rateLimits/read）"
+            data-i18n-title="tooltip.quotaUsage"
+          >
+            <div class="quota-ring-strip">
+              <div class="quota-ring-item">
+                <div id="sidebar-quota-5h-ring" class="sidebar-mini-ring quota">
+                  <span class="sidebar-ring-tag">5h</span>
+                </div>
+                <span class="quota-value-stack">
+                  <span id="quota-5h-text" class="quota-value">--%</span>
+                  <span id="quota-5h-reset" class="quota-reset-time">--.-- --:--</span>
+                </span>
+              </div>
+              <div class="quota-ring-item">
+                <div id="sidebar-quota-7d-ring" class="sidebar-mini-ring quota">
+                  <span class="sidebar-ring-tag">7d</span>
+                </div>
+                <span class="quota-value-stack">
+                  <span id="quota-7d-text" class="quota-value">--%</span>
+                  <span id="quota-7d-reset" class="quota-reset-time">--.-- --:--</span>
+                </span>
+              </div>
+            </div>
           </div>
           <button id="open-settings" class="btn ghost" type="button" data-i18n="btn.settings">设置</button>
         </header>
 
         <section class="sidebar-session-info">
-          <div class="sidebar-session-stats">
-            <article class="sidebar-session-card">
-              <span class="menu-toggle-label" data-i18n="label.context">上下文</span>
-              <div class="sidebar-ring-row">
-                <div id="sidebar-context-ring" class="sidebar-mini-ring"></div>
-                <div class="sidebar-ring-meta">
-                  <strong id="sidebar-context-usage">-- / --</strong>
-                  <span id="sidebar-context-pct" class="sub">--%</span>
-                </div>
-              </div>
-            </article>
-            <article class="sidebar-session-card">
-              <span class="menu-toggle-label" data-i18n="label.quotaRemaining">额度剩余</span>
-              <div class="sidebar-quota-rings">
-                <div class="sidebar-quota-item">
-                  <div id="sidebar-quota-5h-ring" class="sidebar-mini-ring quota">
-                    <span class="sidebar-ring-tag">5h</span>
-                  </div>
-                  <span id="sidebar-quota-5h" class="quota-value">--%</span>
-                </div>
-                <div class="sidebar-quota-item">
-                  <div id="sidebar-quota-7d-ring" class="sidebar-mini-ring quota">
-                    <span class="sidebar-ring-tag">7d</span>
-                  </div>
-                  <span id="sidebar-quota-7d" class="quota-value">--%</span>
-                </div>
-              </div>
-            </article>
-          </div>
           <p id="sidebar-status" class="sub" data-i18n="status.initializing">状态: 初始化中...</p>
         </section>
 
@@ -54,59 +48,13 @@
           <div class="sidebar-primary-actions">
             <button id="new-thread-btn" class="btn" type="button" data-i18n="btn.newThread">新建 Thread</button>
             <button id="refresh-threads-btn" class="btn ghost" type="button" data-i18n="btn.refresh">刷新</button>
+            <section id="lock-banner" class="lock-banner quota-lock-banner" hidden>
+              <div id="lock-banner-text"></div>
+              <button id="unlock-thread-btn" class="btn mini ghost" type="button" data-i18n="btn.unlockThread">
+                解除单线程锁定
+              </button>
+            </section>
           </div>
-          <section class="menu-display-controls">
-            <div class="menu-display-grid">
-              <div class="menu-toggle-row">
-                <div class="menu-toggle-copy">
-                  <span class="menu-toggle-label" data-i18n="menu.language">语言</span>
-                  <span id="lang-toggle-target" class="menu-toggle-target">English</span>
-                </div>
-                <label class="switch-pill" data-i18n-title="tooltip.languageToggle">
-                  <input id="lang-toggle" type="checkbox" />
-                  <span class="switch-pill-track"></span>
-                </label>
-              </div>
-              <div class="menu-toggle-row">
-                <div class="menu-toggle-copy">
-                  <span class="menu-toggle-label" data-i18n="menu.theme">主题</span>
-                  <span id="theme-toggle-current" class="menu-toggle-target">亮色</span>
-                </div>
-                <label class="switch-pill" data-i18n-title="tooltip.themeToggle">
-                  <input id="theme-toggle" type="checkbox" />
-                  <span class="switch-pill-track"></span>
-                </label>
-              </div>
-            </div>
-          </section>
-          <input id="thread-search" type="search" placeholder="搜索 thread 关键词..." data-i18n-placeholder="input.searchThreads" />
-          <div class="row">
-            <label class="fit">
-              <span data-i18n="label.source">来源</span>
-              <select id="source-filter">
-                <option value="" data-i18n="option.all">全部</option>
-                <option value="vscode">vscode</option>
-                <option value="cli">cli</option>
-                <option value="exec">exec</option>
-                <option value="appServer">appServer</option>
-                <option value="unknown">unknown</option>
-              </select>
-            </label>
-            <label class="switch">
-              <input id="archived-toggle" type="checkbox" />
-              <span data-i18n="label.includeArchived">包含归档</span>
-            </label>
-          </div>
-          <label class="switch">
-            <input id="desktop-compatible-toggle" type="checkbox" checked />
-            <span data-i18n="label.desktopCompatible">桌面一致视图（隐藏过程更新）</span>
-          </label>
-          <section id="lock-banner" class="lock-banner" hidden>
-            <div id="lock-banner-text"></div>
-            <button id="unlock-thread-btn" class="btn mini ghost" type="button" data-i18n="btn.unlockThread">
-              解除单线程锁定
-            </button>
-          </section>
         </section>
 
         <section id="thread-list" class="thread-list"></section>
@@ -121,39 +69,18 @@
             <h2 id="thread-title" data-i18n="thread.selectPrompt">请选择一个 Thread</h2>
             <p id="thread-meta" class="sub"></p>
           </div>
-          <div class="top-tools">
-            <div id="context-widget" class="context-widget" title="上下文窗口使用率" data-i18n-title="tooltip.contextUsage">
-              <div id="context-ring" class="context-ring"></div>
-              <div class="context-meta">
-                <div class="context-caption" data-i18n="label.context">上下文</div>
-                <div id="context-usage-text" class="context-usage-text">-- / --</div>
-                <div id="context-pct-text" class="context-pct-text">--%</div>
-              </div>
-            </div>
-            <div
-              id="quota-widget"
-              class="quota-widget"
-              title="Codex 限额剩余（来自 account/rateLimits/read）"
-              data-i18n-title="tooltip.quotaUsage"
-            >
-              <div class="quota-title" data-i18n="label.quotaRemaining">额度剩余</div>
-              <div class="quota-row">
-                <span class="quota-label">5h</span>
-                <span id="quota-5h-text" class="quota-value">--%</span>
-              </div>
-              <div class="quota-row">
-                <span class="quota-label">7d</span>
-                <span id="quota-7d-text" class="quota-value">--%</span>
-              </div>
-            </div>
-          </div>
         </header>
 
         <section id="status-bar" class="status" data-i18n="status.initializing">状态: 初始化中...</section>
 
+        <section id="approval-banner" class="approval-banner hidden">
+          <button id="approval-toggle-btn" class="btn ghost mini" type="button">审批请求 (0)</button>
+        </section>
+
         <section id="approval-panel" class="approval-panel hidden">
           <header>
             <h3 data-i18n="approval.title">审批请求</h3>
+            <button id="approval-hide-btn" class="btn ghost mini" type="button">隐藏</button>
           </header>
           <div id="approval-list"></div>
         </section>
@@ -161,7 +88,29 @@
         <section id="chat" class="chat"></section>
 
         <form id="composer" class="composer">
-          <button id="composer-toggle" class="composer-toggle" type="button" aria-label="展开输入" aria-expanded="false">⌃</button>
+          <div class="composer-topline">
+            <section id="model-float" class="model-float" aria-label="模型设置">
+              <div id="model-float-badge" class="model-float-badge" aria-live="polite">
+                <span class="model-float-kicker">MODEL</span>
+                <span class="model-float-main">gpt-5.5</span>
+                <span id="model-effort-current" class="model-float-effort">中</span>
+              </div>
+            </section>
+            <button id="composer-toggle" class="composer-toggle" type="button" aria-label="展开输入" aria-expanded="false">⌃</button>
+            <div
+              id="context-widget"
+              class="context-widget composer-context-widget"
+              title="上下文窗口使用率"
+              data-i18n-title="tooltip.contextUsage"
+            >
+              <div id="context-ring" class="context-ring"></div>
+              <div class="context-meta">
+                <div class="context-caption" data-i18n="label.context">上下文</div>
+                <div id="context-usage-text" class="context-usage-text">-- / --</div>
+                <div id="context-pct-text" class="context-pct-text">--%</div>
+              </div>
+            </div>
+          </div>
           <textarea id="message-input" rows="3" placeholder="输入消息，支持文本 + 图片" data-i18n-placeholder="input.message"></textarea>
           <section id="attachments" class="attachments hidden">
             <div id="pending-images" class="pending-images"></div>

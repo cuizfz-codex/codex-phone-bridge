@@ -1,4 +1,12 @@
 const { EventEmitter } = require("events");
+const { execFile } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const { promisify } = require("util");
+
+const execFileAsync = promisify(execFile);
+const DESKTOP_RUNTIME_SCAN_TTL_MS = 3000;
+const SESSION_TAIL_BYTES = 96 * 1024;
 
 const ALL_SOURCE_KINDS = [
   "cli",
@@ -32,6 +40,16 @@ class ThreadSyncService extends EventEmitter {
       nextCursor: null,
     };
     this.watchedThreads = new Map();
+    this.listInFlightByKey = new Map();
+    this.desktopRuntimeScan = options.desktopRuntimeScan !== false;
+    this.desktopRuntimeScanTtlMs = Number(
+      options.desktopRuntimeScanTtlMs || DESKTOP_RUNTIME_SCAN_TTL_MS
+    );
+    this.desktopRuntimeCache = {
+      updatedAt: 0,
+      threadIds: new Set(),
+    };
+    this.desktopIpcMonitor = options.desktopIpcMonitor || null;
   }
 
   start() {
@@ -125,10 +143,20 @@ class ThreadSyncService extends EventEmitter {
       sourceKinds: ALL_SOURCE_KINDS,
     });
     const signature = JSON.stringify(
-      result.data.map((item) => [item.id, item.updatedAt, item.preview])
+      result.data.map((item) => [
+        item.id,
+        item.updatedAt,
+        item.preview,
+        item.inProgress === true || item.running === true,
+      ])
     );
     const oldSignature = JSON.stringify(
-      this.listCache.data.map((item) => [item.id, item.updatedAt, item.preview])
+      this.listCache.data.map((item) => [
+        item.id,
+        item.updatedAt,
+        item.preview,
+        item.inProgress === true || item.running === true,
+      ])
     );
     this.listCache = {
       updatedAt: new Date().toISOString(),
@@ -163,11 +191,50 @@ class ThreadSyncService extends EventEmitter {
         : ALL_SOURCE_KINDS;
     const modelProviders =
       Array.isArray(options.modelProviders) && options.modelProviders.length > 0
-        ? options.modelProviders
-        : null;
+      ? options.modelProviders
+      : null;
     const sortKey = options.sortKey ? String(options.sortKey) : "updated_at";
     const query = options.query ? String(options.query).trim().toLowerCase() : "";
+    const requestKey = buildThreadListRequestKey({
+      limit,
+      archived,
+      cursor,
+      sourceKinds,
+      modelProviders,
+      sortKey,
+      query,
+    });
+    const inFlight = this.listInFlightByKey.get(requestKey);
+    if (inFlight) return inFlight;
 
+    const request = this._listThreadsUncached({
+      limit,
+      archived,
+      cursor,
+      sourceKinds,
+      modelProviders,
+      sortKey,
+      query,
+    });
+    this.listInFlightByKey.set(requestKey, request);
+    try {
+      return await request;
+    } finally {
+      if (this.listInFlightByKey.get(requestKey) === request) {
+        this.listInFlightByKey.delete(requestKey);
+      }
+    }
+  }
+
+  async _listThreadsUncached({
+    limit,
+    archived,
+    cursor,
+    sourceKinds,
+    modelProviders,
+    sortKey,
+    query,
+  }) {
     if (!query) {
       const result = await this.rpc.request("thread/list", {
         cursor,
@@ -176,8 +243,11 @@ class ThreadSyncService extends EventEmitter {
         sourceKinds,
         modelProviders,
         sortKey,
+        useStateDbOnly: true,
       });
-      return normalizeThreadListResponse(result);
+      return this._decorateThreadListRuntimeState(
+        normalizeThreadListResponse(result)
+      );
     }
 
     let pageCursor = cursor;
@@ -194,6 +264,7 @@ class ThreadSyncService extends EventEmitter {
           sourceKinds,
           modelProviders,
           sortKey,
+          useStateDbOnly: true,
         })
       );
       for (const item of page.data) {
@@ -208,10 +279,78 @@ class ThreadSyncService extends EventEmitter {
       }
       pageCursor = page.nextCursor;
     }
+    const decorated = await this._decorateThreadListRuntimeState({ data: collected });
     return {
-      data: collected,
+      data: decorated.data,
       nextCursor: pageCursor,
     };
+  }
+
+  async _decorateThreadListRuntimeState(result) {
+    const normalized = normalizeThreadListResponse(result);
+    const desktopRunningThreadIds = await this._getDesktopRuntimeThreadIds();
+    normalized.data = normalized.data.map((thread) => {
+      return this._decorateThreadRuntimeState(thread, desktopRunningThreadIds);
+    });
+    return normalized;
+  }
+
+  _decorateThreadRuntimeState(thread, desktopRunningThreadIds = new Set()) {
+    if (!thread || !thread.id) return thread;
+    const entry = this.watchedThreads.get(String(thread.id));
+    const isRunning =
+      hasInProgressTurn(thread) ||
+      (entry && entry.inProgress) ||
+      desktopRunningThreadIds.has(String(thread.id));
+    if (!isRunning) return thread;
+    return {
+      ...thread,
+      inProgress: true,
+      running: true,
+    };
+  }
+
+  async _getDesktopRuntimeThreadIds() {
+    const ipcThreadIds = this._getDesktopIpcRunningThreadIds();
+    if (!this.desktopRuntimeScan) return ipcThreadIds;
+    const now = Date.now();
+    if (
+      this.desktopRuntimeCache.updatedAt &&
+      now - this.desktopRuntimeCache.updatedAt < this.desktopRuntimeScanTtlMs
+    ) {
+      return mergeSets(this.desktopRuntimeCache.threadIds, ipcThreadIds);
+    }
+
+    try {
+      const threadIds = await scanDesktopRuntimeThreadIds();
+      this.desktopRuntimeCache = {
+        updatedAt: now,
+        threadIds,
+      };
+      return mergeSets(threadIds, ipcThreadIds);
+    } catch (error) {
+      this.emit("error", error);
+      this.desktopRuntimeCache = {
+        updatedAt: now,
+        threadIds: new Set(),
+      };
+      return ipcThreadIds;
+    }
+  }
+
+  _getDesktopIpcRunningThreadIds() {
+    if (
+      !this.desktopIpcMonitor ||
+      typeof this.desktopIpcMonitor.getRunningThreadIds !== "function"
+    ) {
+      return new Set();
+    }
+    try {
+      return this.desktopIpcMonitor.getRunningThreadIds();
+    } catch (error) {
+      this.emit("error", error);
+      return new Set();
+    }
   }
 
   async readThread(threadId, includeTurns = true) {
@@ -223,23 +362,30 @@ class ThreadSyncService extends EventEmitter {
     if (!thread) {
       throw new Error("Thread not found");
     }
-    return thread;
+    const desktopRunningThreadIds = await this._getDesktopRuntimeThreadIds();
+    return this._decorateThreadRuntimeState(thread, desktopRunningThreadIds);
   }
 
   async startThread(params = {}) {
-    const payload = {
+    const payload = compactObject({
       model: params.model || null,
       modelProvider: params.modelProvider || null,
+      serviceTier: params.serviceTier || null,
       cwd: params.cwd || null,
       approvalPolicy: params.approvalPolicy || null,
+      approvalsReviewer: params.approvalsReviewer || null,
       sandbox: params.sandbox || null,
+      permissionProfile: params.permissionProfile || null,
       config: params.config || null,
+      serviceName: params.serviceName || null,
       baseInstructions: params.baseInstructions || null,
       developerInstructions: params.developerInstructions || null,
       personality: params.personality || null,
       ephemeral: params.ephemeral || false,
+      sessionStartSource: normalizeThreadStartSource(params.sessionStartSource),
       experimentalRawEvents: Boolean(params.experimentalRawEvents || false),
-    };
+      persistExtendedHistory: Boolean(params.persistExtendedHistory || false),
+    });
     return this.rpc.request("thread/start", payload);
   }
 
@@ -283,11 +429,14 @@ class ThreadSyncService extends EventEmitter {
         modelProvider: overrides.modelProvider || null,
         cwd: overrides.cwd || null,
         approvalPolicy: overrides.approvalPolicy || null,
+        approvalsReviewer: overrides.approvalsReviewer || null,
         sandbox: overrides.sandbox || null,
+        permissionProfile: overrides.permissionProfile || null,
         config: overrides.config || null,
         baseInstructions: overrides.baseInstructions || null,
         developerInstructions: overrides.developerInstructions || null,
         personality: overrides.personality || null,
+        persistExtendedHistory: Boolean(overrides.persistExtendedHistory || false),
       })
     );
   }
@@ -361,10 +510,13 @@ class ThreadSyncService extends EventEmitter {
       modelProvider: overrides.modelProvider || null,
       cwd: overrides.cwd || null,
       approvalPolicy: overrides.approvalPolicy || null,
+      approvalsReviewer: overrides.approvalsReviewer || null,
       sandbox: overrides.sandbox || null,
+      permissionProfile: overrides.permissionProfile || null,
       config: overrides.config || null,
       baseInstructions: overrides.baseInstructions || null,
       developerInstructions: overrides.developerInstructions || null,
+      persistExtendedHistory: Boolean(overrides.persistExtendedHistory || false),
     });
   }
 
@@ -447,6 +599,17 @@ function normalizeThreadListResponse(result) {
   };
 }
 
+function mergeSets(...sets) {
+  const out = new Set();
+  for (const set of sets) {
+    if (!set || typeof set[Symbol.iterator] !== "function") continue;
+    for (const value of set) {
+      out.add(String(value));
+    }
+  }
+  return out;
+}
+
 function matchesThreadQuery(thread, query) {
   if (!query) return true;
   const haystack = [
@@ -468,7 +631,167 @@ function matchesThreadQuery(thread, query) {
 
 function hasInProgressTurn(thread) {
   if (!thread || !Array.isArray(thread.turns)) return false;
-  return thread.turns.some((turn) => turn && turn.status === "inProgress");
+  return thread.turns.some((turn) => turn && isRunningStatus(turn.status));
+}
+
+async function scanDesktopRuntimeThreadIds() {
+  if (process.platform !== "darwin") return new Set();
+
+  const { stdout } = await execFileAsync("ps", ["-axo", "pid,command"], {
+    maxBuffer: 1024 * 1024,
+  });
+  const pids = parseCodexAppServerPids(stdout);
+  const threadIds = new Set();
+  await Promise.all(
+    pids.map(async (pid) => {
+      const { stdout: lsofOut } = await execFileAsync(
+        "lsof",
+        ["-Pan", "-p", pid],
+        { maxBuffer: 3 * 1024 * 1024 }
+      );
+      const sessions = parseRuntimeSessionFilesFromLsof(lsofOut);
+      await Promise.all(
+        sessions.map(async (sessionPath) => {
+          const threadId = parseThreadIdFromSessionPath(sessionPath);
+          if (!threadId) return;
+          if (await isRuntimeSessionLogActive(sessionPath)) {
+            threadIds.add(threadId);
+          }
+        })
+      );
+    })
+  );
+  return threadIds;
+}
+
+function parseCodexAppServerPids(psOutput) {
+  return String(psOutput || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.+)$/);
+      if (!match) return null;
+      const command = match[2];
+      if (
+        !command.includes("/Applications/Codex.app/Contents/Resources/codex") ||
+        !/\bapp-server\b/.test(command)
+      ) {
+        return null;
+      }
+      return match[1];
+    })
+    .filter(Boolean);
+}
+
+function parseRuntimeSessionFilesFromLsof(lsofOutput) {
+  const files = new Set();
+  for (const line of String(lsofOutput || "").split(/\r?\n/)) {
+    if (!line.includes("/.codex/sessions/") || !line.includes(".jsonl")) {
+      continue;
+    }
+    const fields = line.trim().split(/\s+/);
+    const fd = fields[3] || "";
+    if (!fd.includes("w")) continue;
+    const filePath = fields.slice(8).join(" ");
+    if (filePath.endsWith(".jsonl")) {
+      files.add(filePath);
+    }
+  }
+  return [...files];
+}
+
+function parseThreadIdFromSessionPath(sessionPath) {
+  const base = path.basename(String(sessionPath || ""));
+  const match = base.match(
+    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+  );
+  return match ? match[1] : null;
+}
+
+async function isRuntimeSessionLogActive(sessionPath) {
+  const text = await readTail(sessionPath, SESSION_TAIL_BYTES);
+  return isRuntimeSessionTailActive(text);
+}
+
+async function readTail(filePath, maxBytes) {
+  const stat = await fs.promises.stat(filePath);
+  const length = Math.min(Number(maxBytes) || SESSION_TAIL_BYTES, stat.size);
+  if (length <= 0) return "";
+  const handle = await fs.promises.open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, stat.size - length);
+    return buffer.toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function isRuntimeSessionTailActive(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  let inspected = 0;
+  for (let i = lines.length - 1; i >= 0 && inspected < 120; i -= 1) {
+    let record = null;
+    try {
+      record = JSON.parse(lines[i]);
+    } catch (_error) {
+      continue;
+    }
+    inspected += 1;
+    const decision = classifyRuntimeRecord(record);
+    if (decision !== null) return decision;
+  }
+  return false;
+}
+
+function classifyRuntimeRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  if (record.type === "turn_context") return true;
+
+  const payload = record.payload || {};
+  if (record.type === "event_msg") {
+    const eventType = payload.type || "";
+    if (
+      eventType === "task_complete" ||
+      eventType === "turn_aborted" ||
+      eventType === "shutdown_complete"
+    ) {
+      return false;
+    }
+    if (eventType === "agent_message" && payload.phase === "final_answer") {
+      return false;
+    }
+    if (eventType === "token_count") return null;
+    if (eventType) return true;
+  }
+
+  if (record.type === "response_item") {
+    const item = payload.payload || payload;
+    if (item.type === "message" && item.phase === "final_answer") {
+      return false;
+    }
+    if (item.type) return true;
+  }
+
+  return null;
+}
+
+function isRunningStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "");
+  return (
+    status === "inprogress" ||
+    status === "running" ||
+    status === "started" ||
+    status === "streaming" ||
+    status === "working" ||
+    status === "busy"
+  );
 }
 
 function threadSignature(thread) {
@@ -503,7 +826,38 @@ function compactObject(input) {
   return out;
 }
 
+function normalizeThreadStartSource(value) {
+  const raw = String(value || "").trim();
+  if (raw === "startup" || raw === "clear") return raw;
+  return null;
+}
+
+function buildThreadListRequestKey(input) {
+  const sourceKinds = Array.isArray(input.sourceKinds)
+    ? input.sourceKinds.map((item) => String(item)).sort()
+    : [];
+  const modelProviders = Array.isArray(input.modelProviders)
+    ? input.modelProviders.map((item) => String(item)).sort()
+    : null;
+  return JSON.stringify({
+    limit: input.limit,
+    archived: input.archived,
+    cursor: input.cursor || null,
+    sourceKinds,
+    modelProviders,
+    sortKey: input.sortKey || "updated_at",
+    query: input.query || "",
+  });
+}
+
 module.exports = {
   ThreadSyncService,
   ALL_SOURCE_KINDS,
+  _test: {
+    classifyRuntimeRecord,
+    isRuntimeSessionTailActive,
+    parseCodexAppServerPids,
+    parseRuntimeSessionFilesFromLsof,
+    parseThreadIdFromSessionPath,
+  },
 };

@@ -33,7 +33,9 @@ const elements = {
   pairingStatus: document.querySelector("#pairing-status"),
   statusBar: document.querySelector("#status-bar"),
   threadList: document.querySelector("#thread-list"),
-  threadSearch: document.querySelector("#thread-search"),
+  advancedFilters: document.querySelector(".advanced-filters"),
+  advancedFiltersToggle: document.querySelector("#advanced-filters-toggle"),
+  advancedFilterBody: document.querySelector("#advanced-filter-body"),
   sourceFilter: document.querySelector("#source-filter"),
   archivedToggle: document.querySelector("#archived-toggle"),
   desktopCompatibleToggle: document.querySelector("#desktop-compatible-toggle"),
@@ -44,6 +46,10 @@ const elements = {
   newThreadBtn: document.querySelector("#new-thread-btn"),
   threadTitle: document.querySelector("#thread-title"),
   threadMeta: document.querySelector("#thread-meta"),
+  modelFloat: document.querySelector("#model-float"),
+  modelFloatBadge: document.querySelector("#model-float-badge"),
+  modelNameCurrent: document.querySelector(".model-float-main"),
+  modelEffortCurrent: document.querySelector("#model-effort-current"),
   sidebarStatus: document.querySelector("#sidebar-status"),
   contextWidget: document.querySelector("#context-widget"),
   contextRing: document.querySelector("#context-ring"),
@@ -54,15 +60,16 @@ const elements = {
   sidebarContextPctText: document.querySelector("#sidebar-context-pct"),
   quotaWidget: document.querySelector("#quota-widget"),
   quota5hText: document.querySelector("#quota-5h-text"),
+  quota5hReset: document.querySelector("#quota-5h-reset"),
   quota7dText: document.querySelector("#quota-7d-text"),
+  quota7dReset: document.querySelector("#quota-7d-reset"),
   sidebarQuota5hRing: document.querySelector("#sidebar-quota-5h-ring"),
   sidebarQuota7dRing: document.querySelector("#sidebar-quota-7d-ring"),
   sidebarQuota5hText: document.querySelector("#sidebar-quota-5h"),
   sidebarQuota7dText: document.querySelector("#sidebar-quota-7d"),
-  langToggle: document.querySelector("#lang-toggle"),
-  langToggleTarget: document.querySelector("#lang-toggle-target"),
-  themeToggle: document.querySelector("#theme-toggle"),
-  themeToggleCurrent: document.querySelector("#theme-toggle-current"),
+  approvalBanner: document.querySelector("#approval-banner"),
+  approvalToggleBtn: document.querySelector("#approval-toggle-btn"),
+  approvalHideBtn: document.querySelector("#approval-hide-btn"),
   chat: document.querySelector("#chat"),
   approvalsPanel: document.querySelector("#approval-panel"),
   approvalList: document.querySelector("#approval-list"),
@@ -89,8 +96,8 @@ const storageKeys = {
   lockedThreadId: "codex_v2_locked_thread_id",
   initialThreadId: "codex_v2_initial_thread_id",
   desktopCompatibleMode: "codex_v2_desktop_compatible_mode",
-  theme: "codex_v2_theme",
-  language: "codex_v2_language",
+  advancedFiltersOpen: "codex_v2_advanced_filters_open",
+  approvalsExpanded: "codex_v2_approvals_expanded",
 };
 
 const legacyStorageKeys = {
@@ -105,6 +112,13 @@ const RATE_LIMIT_POLL_MS = 60000;
 const INPUT_ACTIVITY_HOLD_MS = 1200;
 const LIVE_DELTA_RENDER_INTERVAL_MS = 120;
 const DEFAULT_LANGUAGE = "zh";
+const PROJECT_THREAD_PREVIEW_LIMIT = 5;
+const MODEL_FLOAT_MODEL = "gpt-5.5";
+const MODEL_EFFORT_OPTIONS = {
+  medium: "中",
+  high: "高",
+  xhigh: "超高",
+};
 
 const I18N = {
   zh: {
@@ -115,6 +129,8 @@ const I18N = {
     "btn.refresh": "刷新",
     "btn.mobilePair": "手机配对",
     "btn.unlockThread": "解除单线程锁定",
+    "btn.showApprovals": "审批请求 ({count})",
+    "btn.hideApprovals": "隐藏",
     "btn.menu": "菜单",
     "btn.openComposer": "展开输入",
     "btn.hideComposer": "收起输入",
@@ -131,10 +147,10 @@ const I18N = {
     "input.searchThreads": "搜索 thread 关键词...",
     "input.message": "输入消息，支持文本 + 图片",
     "label.source": "来源",
+    "label.advancedFilters": "高级筛选",
     "label.includeArchived": "包含归档",
     "label.desktopCompatible": "桌面一致视图（隐藏过程更新）",
     "label.context": "上下文",
-    "label.quotaRemaining": "额度剩余",
     "label.language": "语言",
     "label.langLeft": "中",
     "label.langRight": "英",
@@ -152,6 +168,7 @@ const I18N = {
       "当前设备未绑定。请在桌面 phone-codex 控制页点击 Start Pairing 后扫码，通常会自动完成首次配对。",
     "approval.title": "审批请求",
     "settings.title": "连接设置",
+    "settings.runtimeStats": "运行状态",
     "settings.server": "服务器地址",
     "settings.serverPlaceholder": "自动检测（默认使用当前访问地址）",
     "settings.quickPick": "快速选择地址",
@@ -217,10 +234,6 @@ const I18N = {
     "status.unlockLoadFailed": "解除锁定后加载失败: {error}",
     "status.unlocked": "已解除单线程锁定",
     "status.openThreadFailed": "打开 thread 失败: {error}",
-    "status.renameFailed": "重命名失败: {error}",
-    "status.archiveFailed": "归档失败: {error}",
-    "status.unarchiveFailed": "取消归档失败: {error}",
-    "status.forkFailed": "Fork 失败: {error}",
     "status.imageUploadFailed": "图片上传失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
@@ -242,11 +255,9 @@ const I18N = {
     "thread.emptyList": "没有可显示的线程。",
     "thread.emptyPreview": "(空白线程)",
     "thread.archived": "已归档",
-    "thread.action.rename": "改名",
-    "thread.action.archive": "归档",
-    "thread.action.unarchive": "取消归档",
-    "thread.action.fork": "分叉",
     "thread.projectCount": "{count} 线程",
+    "thread.showMore": "展开全部 {count} 个",
+    "thread.showLess": "收起到 5 个",
     "thread.turnsCount": "回合 {count}",
     "thread.turnHeader": "轮次 {id} · {status}",
     "thread.noContent": "该线程还没有对话内容。",
@@ -265,17 +276,14 @@ const I18N = {
     "approval.acceptSession": "会话放行",
     "approval.decline": "拒绝",
     "approval.cancel": "取消",
-    "prompt.renameThread": "输入新线程名",
     "attachment.remove": "移除",
     "context.title": "上下文窗口使用率",
     "context.noWindow": "上下文窗口大小不可用",
     "context.tooltip":
       "上下文（last.inputTokens）：已用 {used} / {window}，剩余 {remain} tokens",
-    "quota.tooltip": "Codex 限额剩余：5h {p} · 7d {s}",
+    "quota.tooltip": "Codex 限额剩余：5h {pr} · 7d {sr}",
     "tooltip.contextUsage": "上下文窗口使用率",
     "tooltip.quotaUsage": "Codex 限额剩余（来自 account/rateLimits/read）",
-    "tooltip.languageToggle": "切换中英文显示",
-    "tooltip.themeToggle": "切换浅色/深色主题",
     "status.prefix": "状态: {text}",
     "error.cannotDetermineThread": "无法确定 thread id",
     "error.codexReloginRequired":
@@ -291,6 +299,8 @@ const I18N = {
     "btn.refresh": "Refresh",
     "btn.mobilePair": "Pair Device",
     "btn.unlockThread": "Unlock Thread Lock",
+    "btn.showApprovals": "Approvals ({count})",
+    "btn.hideApprovals": "Hide",
     "btn.menu": "Menu",
     "btn.openComposer": "Open composer",
     "btn.hideComposer": "Collapse composer",
@@ -307,10 +317,10 @@ const I18N = {
     "input.searchThreads": "Search thread keywords...",
     "input.message": "Type a message, supports text + image",
     "label.source": "Source",
+    "label.advancedFilters": "Advanced Filters",
     "label.includeArchived": "Include archived",
     "label.desktopCompatible": "Desktop-compatible view (hide intermediate updates)",
     "label.context": "Context",
-    "label.quotaRemaining": "Quota Left",
     "label.language": "Language",
     "label.langLeft": "ZH",
     "label.langRight": "EN",
@@ -328,6 +338,7 @@ const I18N = {
       "This device is not paired. Click Start Pairing in desktop phone-codex and scan the QR code. Pairing usually completes automatically.",
     "approval.title": "Approvals",
     "settings.title": "Connection Settings",
+    "settings.runtimeStats": "Runtime Status",
     "settings.server": "Server URL",
     "settings.serverPlaceholder": "Auto-detected (defaults to current page origin)",
     "settings.quickPick": "Quick address picker",
@@ -395,10 +406,6 @@ const I18N = {
     "status.unlockLoadFailed": "Reload after unlock failed: {error}",
     "status.unlocked": "Thread lock removed",
     "status.openThreadFailed": "Open thread failed: {error}",
-    "status.renameFailed": "Rename failed: {error}",
-    "status.archiveFailed": "Archive failed: {error}",
-    "status.unarchiveFailed": "Unarchive failed: {error}",
-    "status.forkFailed": "Fork failed: {error}",
     "status.imageUploadFailed": "Image upload failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
@@ -420,11 +427,9 @@ const I18N = {
     "thread.emptyList": "No threads to display.",
     "thread.emptyPreview": "(empty thread)",
     "thread.archived": "archived",
-    "thread.action.rename": "Rename",
-    "thread.action.archive": "Archive",
-    "thread.action.unarchive": "Unarchive",
-    "thread.action.fork": "Fork",
     "thread.projectCount": "{count} threads",
+    "thread.showMore": "Show all {count}",
+    "thread.showLess": "Show less",
     "thread.turnsCount": "turns {count}",
     "thread.turnHeader": "Turn {id} · {status}",
     "thread.titleWithId": "Thread {id}",
@@ -443,17 +448,14 @@ const I18N = {
     "approval.acceptSession": "Approve Session",
     "approval.decline": "Decline",
     "approval.cancel": "Cancel",
-    "prompt.renameThread": "Enter new thread name",
     "attachment.remove": "Remove",
     "context.title": "Context window usage",
     "context.noWindow": "Context window size unavailable",
     "context.tooltip":
       "Context (last.inputTokens): used {used} / {window}, remaining {remain} tokens",
-    "quota.tooltip": "Codex quota left: 5h {p} · 7d {s}",
+    "quota.tooltip": "Codex quota left: 5h {pr} · 7d {sr}",
     "tooltip.contextUsage": "Context window usage",
     "tooltip.quotaUsage": "Codex quota left (from account/rateLimits/read)",
-    "tooltip.languageToggle": "Switch Chinese / English",
-    "tooltip.themeToggle": "Switch Light / Dark theme",
     "status.prefix": "Status: {text}",
     "error.cannotDetermineThread": "Cannot determine thread id",
     "error.codexReloginRequired":
@@ -472,6 +474,7 @@ const state = {
   projects: [],
   expandedProjectKey: null,
   projectCollapsedByUser: false,
+  expandedProjectThreadKeys: new Set(),
   selectedThreadId: null,
   selectedThread: null,
   selectedThreadUsage: null,
@@ -481,6 +484,7 @@ const state = {
   forceScrollToBottom: false,
   chatScrollLocked: false,
   threadUsageById: new Map(),
+  runningThreadIds: new Set(),
   pendingApprovals: [],
   pendingImages: [],
   eventSource: null,
@@ -527,6 +531,12 @@ const state = {
     pollTimer: null,
     lastError: "",
   },
+  modelChoice: {
+    model: MODEL_FLOAT_MODEL,
+    effort: null,
+  },
+  approvalsExpanded:
+    String(localStorage.getItem(storageKeys.approvalsExpanded) || "").trim() === "1",
   auth: {
     checked: false,
     authenticated: false,
@@ -549,8 +559,6 @@ function init() {
   initializeTheme();
   initializeRateLimitPolling();
   applyI18nToDom();
-  updateLanguageToggleTarget();
-  updateThemeToggleCurrent();
   renderQuotaUsage();
   syncAttachmentsVisibility();
   if (elements.pairingDeviceName && !elements.pairingDeviceName.value) {
@@ -573,6 +581,13 @@ function init() {
   if (elements.desktopCompatibleToggle) {
     elements.desktopCompatibleToggle.checked = state.desktopCompatibleMode;
   }
+  if (elements.advancedFilters && elements.advancedFiltersToggle) {
+    setAdvancedFiltersOpen(
+      localStorage.getItem(storageKeys.advancedFiltersOpen) === "1",
+      { persist: false }
+    );
+  }
+  renderModelFloat();
   bindEvents();
   applyLockedThreadUi();
   renderPairingBanner();
@@ -601,6 +616,42 @@ function resolveInitialBaseUrl() {
     return originBase;
   }
   return storedBase;
+}
+
+function normalizeModelEffort(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[-\s]/g, "_")
+    .toLowerCase();
+  if (normalized === "extra_high" || normalized === "x_high") return "xhigh";
+  return Object.prototype.hasOwnProperty.call(MODEL_EFFORT_OPTIONS, normalized)
+    ? normalized
+    : null;
+}
+
+function renderModelFloat() {
+  if (!elements.modelFloat) return;
+  const model = state.modelChoice.model || MODEL_FLOAT_MODEL;
+  const effort = normalizeModelEffort(state.modelChoice.effort);
+  if (elements.modelNameCurrent) {
+    elements.modelNameCurrent.textContent = model;
+  }
+  if (elements.modelEffortCurrent) {
+    elements.modelEffortCurrent.textContent = effort ? MODEL_EFFORT_OPTIONS[effort] : "—";
+  }
+  const titleParts = [model];
+  if (effort) titleParts.push(MODEL_EFFORT_OPTIONS[effort]);
+  elements.modelFloat.title = `当前线程：${titleParts.join(" · ")}`;
+}
+
+function applyThreadRunDefaults(runDefaults) {
+  const src = runDefaults && typeof runDefaults === "object" ? runDefaults : {};
+  state.modelChoice.model =
+    typeof src.model === "string" && src.model.trim()
+      ? src.model.trim()
+      : MODEL_FLOAT_MODEL;
+  state.modelChoice.effort = normalizeModelEffort(src.effort);
+  renderModelFloat();
 }
 
 async function refreshServerBasePresets() {
@@ -988,13 +1039,11 @@ function normalizeLanguage(value) {
 }
 
 function getLanguagePreference() {
-  const stored = String(localStorage.getItem(storageKeys.language) || "").trim();
-  if (stored) {
-    return normalizeLanguage(stored);
-  }
   const nav =
     typeof navigator !== "undefined"
-      ? navigator.language || (Array.isArray(navigator.languages) ? navigator.languages[0] : "")
+      ? (Array.isArray(navigator.languages) && navigator.languages[0]) ||
+        navigator.language ||
+        ""
       : "";
   return normalizeLanguage(nav || DEFAULT_LANGUAGE);
 }
@@ -1007,15 +1056,7 @@ function applyLanguage(language, options = {}) {
   const next = normalizeLanguage(language);
   state.language = next;
   document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
-  if (options.persist) {
-    localStorage.setItem(storageKeys.language, next);
-  }
-  if (elements.langToggle) {
-    elements.langToggle.checked = next === "en";
-  }
-  updateLanguageToggleTarget();
   applyI18nToDom();
-  updateThemeToggleCurrent();
   if (options.rerender === false) return;
   renderPairingBanner();
   applyLockedThreadUi();
@@ -1070,30 +1111,18 @@ function applyI18nToDom() {
   }
 }
 
-function updateLanguageToggleTarget() {
-  if (!elements.langToggleTarget) return;
-  elements.langToggleTarget.textContent =
-    state.language === "zh" ? "English" : "中文";
-}
-
-function updateThemeToggleCurrent() {
-  if (!elements.themeToggleCurrent) return;
-  elements.themeToggleCurrent.textContent =
-    state.theme === "dark" ? t("menu.themeDark") : t("menu.themeLight");
-}
-
 function initializeTheme() {
   const theme = getThemePreference();
-  applyTheme(theme, { persist: false });
+  applyTheme(theme);
+  if (window.matchMedia) {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", () => {
+      applyTheme(getThemePreference());
+    });
+  }
 }
 
 function getThemePreference() {
-  const stored = String(localStorage.getItem(storageKeys.theme) || "")
-    .trim()
-    .toLowerCase();
-  if (stored === "light" || stored === "dark") {
-    return stored;
-  }
   if (
     window.matchMedia &&
     window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -1107,13 +1136,6 @@ function applyTheme(theme, options = {}) {
   const next = String(theme || "").toLowerCase() === "dark" ? "dark" : "light";
   state.theme = next;
   document.documentElement.setAttribute("data-theme", next);
-  if (elements.themeToggle) {
-    elements.themeToggle.checked = next === "dark";
-  }
-  updateThemeToggleCurrent();
-  if (options.persist) {
-    localStorage.setItem(storageKeys.theme, next);
-  }
 }
 
 function initializeRateLimitPolling() {
@@ -1199,16 +1221,23 @@ function renderQuotaUsage() {
   const primary = set && set.primary ? set.primary : null;
   const secondary = set && set.secondary ? set.secondary : null;
   renderQuotaRow(elements.quota5hText, primary ? primary.remainingPercent : null);
+  renderQuotaResetTime(elements.quota5hReset, primary ? primary.resetsAt : null);
   renderQuotaRow(elements.quota7dText, secondary ? secondary.remainingPercent : null);
+  renderQuotaResetTime(elements.quota7dReset, secondary ? secondary.resetsAt : null);
   renderQuotaRow(elements.sidebarQuota5hText, primary ? primary.remainingPercent : null);
   renderQuotaRow(elements.sidebarQuota7dText, secondary ? secondary.remainingPercent : null);
   setRingPercent(elements.sidebarQuota5hRing, primary ? primary.remainingPercent : null);
   setRingPercent(elements.sidebarQuota7dRing, secondary ? secondary.remainingPercent : null);
 
   if (elements.quotaWidget) {
-    const pText = primary && primary.remainingPercent !== null ? `${Math.round(primary.remainingPercent)}%` : "--%";
-    const sText = secondary && secondary.remainingPercent !== null ? `${Math.round(secondary.remainingPercent)}%` : "--%";
-    elements.quotaWidget.title = t("quota.tooltip", { p: pText, s: sText });
+    const prText =
+      primary && primary.remainingPercent !== null ? `${Math.round(primary.remainingPercent)}%` : "--%";
+    const srText =
+      secondary && secondary.remainingPercent !== null ? `${Math.round(secondary.remainingPercent)}%` : "--%";
+    elements.quotaWidget.title = t("quota.tooltip", {
+      pr: prText,
+      sr: srText,
+    });
   }
 }
 
@@ -1220,6 +1249,23 @@ function renderQuotaRow(textEl, remainPercent) {
   }
   const pct = Math.max(0, Math.min(100, Number(remainPercent)));
   textEl.textContent = `${Math.round(pct)}%`;
+}
+
+function renderQuotaResetTime(textEl, resetsAt) {
+  if (!textEl) return;
+  const ts = Number(resetsAt);
+  if (!Number.isFinite(ts) || ts <= 0) {
+    textEl.textContent = "--.-- --:--";
+    return;
+  }
+  textEl.textContent = formatShortDateTime(ts);
+}
+
+function formatShortDateTime(unixSeconds) {
+  const date = new Date(Number(unixSeconds) * 1000);
+  if (Number.isNaN(date.getTime())) return "--.-- --:--";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}.${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function setRingPercent(ringElement, percent) {
@@ -1345,11 +1391,28 @@ function bindEvents() {
   elements.backdrop.addEventListener("click", () => {
     closeSidebar();
   });
-
   elements.openSettings.addEventListener("click", () => {
+    closeSidebar();
     void refreshServerBasePresets();
     elements.settingsDialog.showModal();
   });
+  if (elements.approvalToggleBtn) {
+    elements.approvalToggleBtn.addEventListener("click", () => {
+      state.approvalsExpanded = !state.approvalsExpanded;
+      localStorage.setItem(
+        storageKeys.approvalsExpanded,
+        state.approvalsExpanded ? "1" : "0"
+      );
+      renderApprovals();
+    });
+  }
+  if (elements.approvalHideBtn) {
+    elements.approvalHideBtn.addEventListener("click", () => {
+      state.approvalsExpanded = false;
+      localStorage.setItem(storageKeys.approvalsExpanded, "0");
+      renderApprovals();
+    });
+  }
   elements.cancelSettings.addEventListener("click", () => {
     elements.settingsDialog.close();
   });
@@ -1376,21 +1439,6 @@ function bindEvents() {
       event.preventDefault();
       await submitLoginForm().catch((error) => {
         setLoginStatus(t("login.failed", { error: asMessage(error) }), true);
-      });
-    });
-  }
-  if (elements.langToggle) {
-    elements.langToggle.addEventListener("change", () => {
-      applyLanguage(elements.langToggle.checked ? "en" : "zh", {
-        persist: true,
-        rerender: true,
-      });
-    });
-  }
-  if (elements.themeToggle) {
-    elements.themeToggle.addEventListener("change", () => {
-      applyTheme(elements.themeToggle.checked ? "dark" : "light", {
-        persist: true,
       });
     });
   }
@@ -1468,22 +1516,23 @@ function bindEvents() {
     });
   });
 
-  elements.threadSearch.addEventListener("input", debounce(() => {
-    loadThreads({ preserveSelection: true }).catch((error) => {
-      setStatusKey("status.searchFailed", { error: asMessage(error) });
+  if (elements.advancedFilters) {
+    elements.advancedFiltersToggle.addEventListener("click", () => {
+      const next = !elements.advancedFilters.classList.contains("open");
+      setAdvancedFiltersOpen(next, { persist: true });
     });
-  }, 250));
-  elements.sourceFilter.addEventListener("change", () => {
-    loadThreads({ preserveSelection: true }).catch((error) => {
-      setStatusKey("status.filterFailed", { error: asMessage(error) });
-    });
-  });
-  elements.archivedToggle.addEventListener("change", () => {
+  }
+  if (elements.sourceFilter) elements.sourceFilter.addEventListener("change", () => {
     loadThreads({ preserveSelection: true }).catch((error) => {
       setStatusKey("status.filterFailed", { error: asMessage(error) });
     });
   });
-  elements.desktopCompatibleToggle.addEventListener("change", () => {
+  if (elements.archivedToggle) elements.archivedToggle.addEventListener("change", () => {
+    loadThreads({ preserveSelection: true }).catch((error) => {
+      setStatusKey("status.filterFailed", { error: asMessage(error) });
+    });
+  });
+  if (elements.desktopCompatibleToggle) elements.desktopCompatibleToggle.addEventListener("change", () => {
     state.desktopCompatibleMode = Boolean(elements.desktopCompatibleToggle.checked);
     localStorage.setItem(
       storageKeys.desktopCompatibleMode,
@@ -1562,7 +1611,19 @@ function bindEvents() {
       renderThreadList();
       return;
     }
-
+    if (action === "toggle-project-threads") {
+      const encoded =
+        (actionElement && actionElement.dataset.projectKey) || "";
+      const key = decodeURIComponent(encoded);
+      if (!key) return;
+      if (state.expandedProjectThreadKeys.has(key)) {
+        state.expandedProjectThreadKeys.delete(key);
+      } else {
+        state.expandedProjectThreadKeys.add(key);
+      }
+      renderThreadList();
+      return;
+    }
     const threadId =
       (actionElement && actionElement.dataset.threadId) ||
       (threadElement && threadElement.dataset.threadId) ||
@@ -1571,30 +1632,6 @@ function bindEvents() {
     if (action === "open") {
       selectThread(threadId).catch((error) => {
         setStatusKey("status.openThreadFailed", { error: asMessage(error) });
-      });
-      return;
-    }
-    if (action === "rename") {
-      renameThread(threadId).catch((error) => {
-        setStatusKey("status.renameFailed", { error: asMessage(error) });
-      });
-      return;
-    }
-    if (action === "archive") {
-      archiveThread(threadId).catch((error) => {
-        setStatusKey("status.archiveFailed", { error: asMessage(error) });
-      });
-      return;
-    }
-    if (action === "unarchive") {
-      unarchiveThread(threadId).catch((error) => {
-        setStatusKey("status.unarchiveFailed", { error: asMessage(error) });
-      });
-      return;
-    }
-    if (action === "fork") {
-      forkThread(threadId).catch((error) => {
-        setStatusKey("status.forkFailed", { error: asMessage(error) });
       });
     }
   });
@@ -1625,6 +1662,12 @@ function bindEvents() {
     const requestId = target.dataset.requestId;
     const decision = target.dataset.decision;
     if (!requestId || !decision) return;
+    const item = state.pendingApprovals.find(
+      (approval) => String(approval.id) === String(requestId)
+    );
+    if (item) {
+      item._submitExtra = parseApprovalButtonExtra(target.dataset.extra);
+    }
     submitApproval(requestId, decision).catch((error) => {
       setStatusKey("status.approvalSubmitFailed", { error: asMessage(error) });
     });
@@ -1720,12 +1763,12 @@ function applyQueryBootstrap() {
   }
   const currentLocked = String(localStorage.getItem(storageKeys.lockedThreadId) || "").trim();
   const resolvedLockThreadId = lockThreadId.trim() || (lockMode ? threadId.trim() : "");
-  if (unlockThread === "1" || !resolvedLockThreadId) {
+  if (unlockThread === "1") {
     if (currentLocked) {
       localStorage.removeItem(storageKeys.lockedThreadId);
       changed = true;
     }
-  } else if (currentLocked !== resolvedLockThreadId) {
+  } else if (resolvedLockThreadId && currentLocked !== resolvedLockThreadId) {
     localStorage.setItem(storageKeys.lockedThreadId, resolvedLockThreadId);
     changed = true;
   }
@@ -1800,19 +1843,36 @@ function getLockedThreadId() {
 }
 
 function getDesktopCompatibleMode() {
-  const raw = String(localStorage.getItem(storageKeys.desktopCompatibleMode) || "").trim();
-  if (!raw) return true;
-  return raw !== "0" && raw.toLowerCase() !== "false";
+  return true;
+}
+
+function setAdvancedFiltersOpen(open, options = {}) {
+  const next = Boolean(open);
+  if (!elements.advancedFilters || !elements.advancedFilterBody) return;
+  elements.advancedFilters.classList.toggle("open", next);
+  elements.advancedFilterBody.hidden = !next;
+  if (elements.advancedFiltersToggle) {
+    elements.advancedFiltersToggle.setAttribute(
+      "aria-expanded",
+      next ? "true" : "false"
+    );
+  }
+  if (options.persist) {
+    localStorage.setItem(storageKeys.advancedFiltersOpen, next ? "1" : "0");
+  }
 }
 
 function applyLockedThreadUi() {
   const locked = Boolean(state.lockedThreadId);
   elements.newThreadBtn.disabled = locked;
-  elements.threadSearch.disabled = locked;
-  elements.sourceFilter.disabled = locked;
-  elements.archivedToggle.disabled = locked;
+  if (elements.sourceFilter) elements.sourceFilter.disabled = locked;
+  if (elements.archivedToggle) elements.archivedToggle.disabled = locked;
+  if (elements.desktopCompatibleToggle) {
+    elements.desktopCompatibleToggle.disabled = locked;
+  }
   if (elements.lockBanner) {
-    elements.lockBanner.hidden = !locked;
+    elements.lockBanner.hidden = false;
+    elements.lockBanner.dataset.locked = locked ? "1" : "0";
   }
   if (elements.lockBannerText) {
     elements.lockBannerText.textContent = locked
@@ -2610,7 +2670,6 @@ async function connectEventSource() {
   es.addEventListener("approval-pending-reminder", (event) => {
     const payload = parseSse(event);
     if (!payload) return;
-    setStatusKey("status.approvalPending", { method: payload.method });
   });
   es.addEventListener("thread-list-updated", () => {
     queueListRefresh(120, { preserveSelection: true, silent: true });
@@ -2683,6 +2742,24 @@ function handleRpcNotification(payload) {
     method === "item/commandExecution/outputDelta" ||
     method === "item/fileChange/outputDelta"
   ) {
+    if (params.threadId) {
+      const threadId = String(params.threadId);
+      if (method === "turn/started") {
+        state.runningThreadIds.add(threadId);
+      }
+      if (
+        (method === "turn/completed" || method === "turn/interrupted") &&
+        threadId === String(state.selectedThreadId || "") &&
+        state.selectedThread &&
+        !threadHasInProgress(state.selectedThread)
+      ) {
+        state.runningThreadIds.delete(threadId);
+      }
+      renderThreadList();
+      if (threadId === String(state.selectedThreadId || "")) {
+        renderCurrentThread();
+      }
+    }
     if (params.threadId === state.selectedThreadId) {
       queueThreadRefresh(300);
     }
@@ -2700,13 +2777,13 @@ async function loadThreads(options = {}) {
   const preserveSelection = options.preserveSelection !== false;
   const silent = Boolean(options.silent);
   try {
-    const includeArchived = Boolean(elements.archivedToggle.checked);
+    const includeArchived = Boolean(
+      elements.archivedToggle && elements.archivedToggle.checked
+    );
     const commonParams = new URLSearchParams();
     commonParams.set("limit", "100");
     if (!state.lockedThreadId) {
-      const query = elements.threadSearch.value.trim();
-      if (query) commonParams.set("query", query);
-      const source = elements.sourceFilter.value.trim();
+      const source = elements.sourceFilter ? elements.sourceFilter.value.trim() : "";
       if (source) {
         commonParams.set("sourceKinds", source);
       } else if (state.desktopCompatibleMode) {
@@ -2852,6 +2929,8 @@ async function loadCurrentThread(threadId, options = {}) {
       return;
     }
     state.selectedThread = data.thread;
+    applyThreadRunDefaults(data.runDefaults);
+    updateThreadRunningState(state.selectedThread);
     // thread/read may omit archived state; keep it consistent with the list view.
     const cached = state.threads.find((item) => item && item.id === String(threadId));
     if (cached && typeof cached.archived === "boolean" && state.selectedThread) {
@@ -2887,6 +2966,23 @@ async function loadCurrentThread(threadId, options = {}) {
   }
 }
 
+function getVisibleProjectThreads(project, showAllThreads) {
+  const threads = Array.isArray(project && project.threads) ? project.threads : [];
+  if (showAllThreads || threads.length <= PROJECT_THREAD_PREVIEW_LIMIT) {
+    return threads;
+  }
+  const selectedIndex = threads.findIndex(
+    (thread) => thread && thread.id === state.selectedThreadId
+  );
+  if (selectedIndex >= PROJECT_THREAD_PREVIEW_LIMIT) {
+    return [
+      ...threads.slice(0, PROJECT_THREAD_PREVIEW_LIMIT - 1),
+      threads[selectedIndex],
+    ];
+  }
+  return threads.slice(0, PROJECT_THREAD_PREVIEW_LIMIT);
+}
+
 function renderThreadList() {
   elements.threadList.innerHTML = "";
   const projects = state.projects && state.projects.length > 0 ? state.projects : groupThreadsByProject(state.threads);
@@ -2908,6 +3004,12 @@ function renderThreadList() {
     const selected = state.threads.find((item) => item.id === state.selectedThreadId);
     if (selected) {
       state.expandedProjectKey = getProjectKey(selected);
+    }
+  }
+  const validProjectKeys = new Set(projects.map((project) => project.key));
+  for (const key of Array.from(state.expandedProjectThreadKeys)) {
+    if (!validProjectKeys.has(key)) {
+      state.expandedProjectThreadKeys.delete(key);
     }
   }
 
@@ -2941,13 +3043,19 @@ function renderThreadList() {
     if (expanded) {
       const list = document.createElement("div");
       list.className = "project-thread-list";
-      for (const thread of project.threads) {
+      const showAllThreads = state.expandedProjectThreadKeys.has(project.key);
+      const visibleThreads = getVisibleProjectThreads(project, showAllThreads);
+      for (const thread of visibleThreads) {
+        const running = threadIsRunning(thread);
         const row = document.createElement("article");
         row.className = "thread-item";
         row.dataset.threadId = thread.id;
         row.dataset.action = "open";
         if (thread.id === state.selectedThreadId) {
           row.classList.add("active");
+        }
+        if (running) {
+          row.classList.add("is-running");
         }
 
         const open = document.createElement("button");
@@ -2958,54 +3066,31 @@ function renderThreadList() {
         const title = document.createElement("div");
         title.className = "thread-preview";
         title.textContent = getThreadListLabel(thread);
+        const titleLine = document.createElement("div");
+        titleLine.className = "thread-title-row";
+        titleLine.append(title);
 
-        const meta = document.createElement("div");
-        meta.className = "thread-meta";
-        const metaParts = [
-          thread.id.slice(0, 8),
-          thread.source || "unknown",
-          thread.modelProvider || "openai",
-          formatThreadTime(thread.updatedAt),
-        ];
-        if (thread.archived) {
-          metaParts.push(t("thread.archived"));
-        }
-        meta.textContent = metaParts.join(" · ");
-        open.append(title, meta);
-
-        if (!state.lockedThreadId) {
-          const actions = document.createElement("div");
-          actions.className = "thread-actions";
-          actions.append(
-            actionButton(t("thread.action.rename"), "rename", thread.id),
-            actionButton(
-              thread.archived ? t("thread.action.unarchive") : t("thread.action.archive"),
-              thread.archived ? "unarchive" : "archive",
-              thread.id
-            ),
-            actionButton(t("thread.action.fork"), "fork", thread.id)
-          );
-          row.append(open, actions);
-        } else {
-          row.append(open);
-        }
+        open.append(titleLine);
+        row.append(open);
         list.append(row);
       }
       group.append(list);
+      if (project.threads.length > PROJECT_THREAD_PREVIEW_LIMIT) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "project-more-btn";
+        more.dataset.action = "toggle-project-threads";
+        more.dataset.projectKey = encodeURIComponent(project.key);
+        more.setAttribute("aria-expanded", showAllThreads ? "true" : "false");
+        more.textContent = showAllThreads
+          ? t("thread.showLess")
+          : t("thread.showMore", { count: project.threads.length });
+        group.append(more);
+      }
     }
 
     elements.threadList.append(group);
   }
-}
-
-function actionButton(label, action, threadId) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "btn mini ghost";
-  button.textContent = label;
-  button.dataset.action = action;
-  button.dataset.threadId = threadId;
-  return button;
 }
 
 function getThreadDisplayName(thread) {
@@ -3122,6 +3207,10 @@ function renderThreadItem(item) {
   if (item.type === "userMessage") {
     const box = document.createElement("article");
     box.className = "item msg user";
+    const role = document.createElement("div");
+    role.className = "msg-role";
+    role.textContent = "你";
+    box.append(role);
     const contentList = Array.isArray(item.content) ? item.content : [];
     for (const c of contentList) {
       if (c.type === "text") {
@@ -3141,6 +3230,10 @@ function renderThreadItem(item) {
   if (item.type === "agentMessage") {
     const box = document.createElement("article");
     box.className = "item msg assistant";
+    const role = document.createElement("div");
+    role.className = "msg-role";
+    role.textContent = "Codex";
+    box.append(role);
     const p = document.createElement("p");
     p.className = "text";
     p.textContent = item.text || "";
@@ -3198,6 +3291,10 @@ function renderThreadItem(item) {
   if (item.type === "imageView") {
     const box = document.createElement("article");
     box.className = "item msg assistant";
+    const role = document.createElement("div");
+    role.className = "msg-role";
+    role.textContent = "Codex";
+    box.append(role);
     box.append(renderImage(item.mediaUrl || "", item.path || "image view"));
     return box;
   }
@@ -3296,42 +3393,47 @@ function upsertPendingApproval(payload) {
 }
 
 function renderApprovals() {
-  elements.approvalList.innerHTML = "";
-  if (state.pendingApprovals.length === 0) {
-    elements.approvalsPanel.classList.add("hidden");
+  const items = Array.isArray(state.pendingApprovals)
+    ? state.pendingApprovals
+    : [];
+  if (elements.approvalToggleBtn) {
+    elements.approvalToggleBtn.textContent = t("btn.showApprovals", {
+      count: items.length,
+    });
+  }
+  if (elements.approvalHideBtn) {
+    elements.approvalHideBtn.textContent = t("btn.hideApprovals");
+  }
+  if (elements.approvalList) elements.approvalList.innerHTML = "";
+  if (items.length === 0) {
+    if (elements.approvalsPanel) elements.approvalsPanel.classList.add("hidden");
+    if (elements.approvalBanner) elements.approvalBanner.classList.add("hidden");
     return;
   }
-  elements.approvalsPanel.classList.remove("hidden");
 
-  for (const item of state.pendingApprovals) {
+  if (elements.approvalBanner) elements.approvalBanner.classList.remove("hidden");
+  if (!state.approvalsExpanded) {
+    if (elements.approvalsPanel) elements.approvalsPanel.classList.add("hidden");
+    return;
+  }
+
+  if (elements.approvalsPanel) elements.approvalsPanel.classList.remove("hidden");
+  if (!elements.approvalList) return;
+
+  for (const item of items) {
     const card = document.createElement("article");
     card.className = "approval-card";
+
     const title = document.createElement("h4");
-    title.textContent = item.method;
+    title.textContent = approvalTitle(item);
+
     const meta = document.createElement("pre");
-    meta.textContent = JSON.stringify(item.params || {}, null, 2);
+    meta.textContent = approvalSummary(item);
 
     const actions = document.createElement("div");
     actions.className = "approval-actions";
-
-    if (item.method === "item/commandExecution/requestApproval") {
-      actions.append(
-        approvalButton(t("approval.accept"), "accept", item.id),
-        approvalButton(t("approval.acceptSession"), "acceptForSession", item.id),
-        approvalButton(t("approval.decline"), "decline", item.id),
-        approvalButton(t("approval.cancel"), "cancel", item.id)
-      );
-    } else if (item.method === "item/fileChange/requestApproval") {
-      actions.append(
-        approvalButton(t("approval.accept"), "accept", item.id),
-        approvalButton(t("approval.acceptSession"), "acceptForSession", item.id),
-        approvalButton(t("approval.decline"), "decline", item.id),
-        approvalButton(t("approval.cancel"), "cancel", item.id)
-      );
-    } else if (item.method === "item/tool/requestUserInput") {
-      actions.append(approvalButton(t("approval.cancel"), "cancel", item.id));
-    } else {
-      actions.append(approvalButton(t("approval.cancel"), "cancel", item.id));
+    for (const action of approvalActionsFor(item)) {
+      actions.append(approvalButton(action.label, action.decision, item.id, action.extra));
     }
 
     card.append(title, meta, actions);
@@ -3339,21 +3441,129 @@ function renderApprovals() {
   }
 }
 
-function approvalButton(label, decision, requestId) {
+function approvalTitle(item) {
+  const method = String((item && item.method) || "");
+  if (method === "item/commandExecution/requestApproval") return "Command approval";
+  if (method === "item/fileChange/requestApproval") return "File change approval";
+  if (method === "item/permissions/requestApproval") return "Permissions approval";
+  if (method === "item/tool/requestUserInput") return "User input required";
+  return method || "Approval";
+}
+
+function approvalSummary(item) {
+  const params = item && item.params && typeof item.params === "object"
+    ? item.params
+    : {};
+  const summary = {
+    threadId: params.threadId || params.conversationId || null,
+    turnId: params.turnId || null,
+    itemId: params.itemId || null,
+    reason: params.reason || null,
+    command: params.command || null,
+    cwd: params.cwd || null,
+    permissions: params.permissions || params.additionalPermissions || null,
+    networkApprovalContext: params.networkApprovalContext || null,
+    fileChanges: params.fileChanges || null,
+    questions: params.questions || null,
+  };
+  for (const key of Object.keys(summary)) {
+    if (summary[key] === null || summary[key] === undefined || summary[key] === "") {
+      delete summary[key];
+    }
+  }
+  return JSON.stringify(Object.keys(summary).length ? summary : params, null, 2);
+}
+
+function approvalActionsFor(item) {
+  const method = String((item && item.method) || "");
+  const params = item && item.params && typeof item.params === "object"
+    ? item.params
+    : {};
+  const actions = [];
+  const add = (label, decision, extra) => actions.push({ label, decision, extra });
+
+  if (
+    method === "item/commandExecution/requestApproval" ||
+    method === "item/fileChange/requestApproval" ||
+    method === "item/permissions/requestApproval"
+  ) {
+    const available = Array.isArray(params.availableDecisions)
+      ? params.availableDecisions.map(normalizeApprovalDecisionName).filter(Boolean)
+      : [];
+    const hasAvailable = available.length > 0;
+    const canShow = (decision) => !hasAvailable || available.includes(decision);
+
+    if (canShow("accept")) add(t("approval.accept"), "accept");
+    if (canShow("acceptForSession")) add(t("approval.acceptSession"), "acceptForSession");
+    if (
+      method === "item/commandExecution/requestApproval" &&
+      canShow("applyNetworkPolicyAmendment") &&
+      Array.isArray(params.proposedNetworkPolicyAmendments) &&
+      params.proposedNetworkPolicyAmendments.length > 0
+    ) {
+      add("Allow network", "applyNetworkPolicyAmendment", {
+        networkPolicyAmendment: params.proposedNetworkPolicyAmendments[0],
+      });
+    }
+    if (canShow("decline")) add(t("approval.decline"), "decline");
+    if (canShow("cancel")) add(t("approval.cancel"), "cancel");
+    if (actions.length > 0) return actions;
+  }
+
+  add(t("approval.cancel"), "cancel");
+  return actions;
+}
+
+function normalizeApprovalDecisionName(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (Object.prototype.hasOwnProperty.call(value, "acceptWithExecpolicyAmendment")) {
+      return "acceptWithExecpolicyAmendment";
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "applyNetworkPolicyAmendment")) {
+      return "applyNetworkPolicyAmendment";
+    }
+  }
+  return "";
+}
+
+function parseApprovalButtonExtra(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function approvalButton(label, decision, requestId, extra = null) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "btn mini";
   btn.textContent = label;
   btn.dataset.requestId = requestId;
   btn.dataset.decision = decision;
+  if (extra && typeof extra === "object") {
+    btn.dataset.extra = JSON.stringify(extra);
+  }
   return btn;
 }
 
 async function submitApproval(requestId, decision) {
+  const item = state.pendingApprovals.find(
+    (approval) => String(approval.id) === String(requestId)
+  );
+  const extra = item && item._submitExtra && typeof item._submitExtra === "object"
+    ? item._submitExtra
+    : {};
   await apiFetchJson(`/api/v2/approvals/${encodeURIComponent(requestId)}`, {
     method: "POST",
     body: {
       decision,
+      ...extra,
     },
   });
   state.pendingApprovals = state.pendingApprovals.filter(
@@ -3510,56 +3720,6 @@ async function selectThreadWithRetry(threadId, options = {}) {
   if (lastError) throw lastError;
 }
 
-async function renameThread(threadId) {
-  const item = state.threads.find((t) => t.id === threadId);
-  const initialName = getThreadDisplayName(item);
-  const fallbackPreview = item && item.preview ? String(item.preview).trim() : "";
-  const initial = (initialName || fallbackPreview).slice(0, 64);
-  const name = window.prompt(t("prompt.renameThread"), initial);
-  if (!name || !name.trim()) return;
-  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/name`, {
-    method: "POST",
-    body: { name: name.trim() },
-  });
-  await loadThreads({ preserveSelection: true });
-  if (state.selectedThreadId === threadId) {
-    await loadCurrentThread(threadId, { silent: true });
-  }
-}
-
-async function archiveThread(threadId) {
-  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/archive`, {
-    method: "POST",
-    body: {},
-  });
-  await loadThreads({ preserveSelection: true });
-  if (state.selectedThreadId === threadId) {
-    await loadCurrentThread(threadId, { silent: true });
-  }
-}
-
-async function unarchiveThread(threadId) {
-  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/unarchive`, {
-    method: "POST",
-    body: {},
-  });
-  await loadThreads({ preserveSelection: true });
-  if (state.selectedThreadId === threadId) {
-    await loadCurrentThread(threadId, { silent: true });
-  }
-}
-
-async function forkThread(threadId) {
-  const data = await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/fork`, {
-    method: "POST",
-    body: {},
-  });
-  await loadThreads({ preserveSelection: true });
-  if (data.thread && data.thread.id) {
-    await selectThread(data.thread.id);
-  }
-}
-
 async function sendCurrentMessage() {
   if (state.sending) return;
   let threadId = state.lockedThreadId || state.selectedThreadId;
@@ -3697,7 +3857,48 @@ function renderPendingImages() {
 
 function threadHasInProgress(thread) {
   const turns = Array.isArray(thread && thread.turns) ? thread.turns : [];
-  return turns.some((turn) => turn && turn.status === "inProgress");
+  return turns.some((turn) => isRunningStatus(turn && turn.status));
+}
+
+function updateThreadRunningState(thread) {
+  if (!thread || !thread.id) return;
+  const threadId = String(thread.id);
+  if (threadHasRunningSignal(thread)) {
+    state.runningThreadIds.add(threadId);
+  } else {
+    state.runningThreadIds.delete(threadId);
+  }
+}
+
+function threadIsRunning(thread) {
+  if (!thread || !thread.id) return false;
+  if (threadHasRunningSignal(thread)) return true;
+  return state.runningThreadIds.has(String(thread.id));
+}
+
+function threadHasRunningSignal(thread) {
+  if (!thread || typeof thread !== "object") return false;
+  if (threadHasInProgress(thread)) return true;
+  if (thread.inProgress === true || thread.running === true) return true;
+  if (thread.active === true && thread.status && isRunningStatus(thread.status.type)) return true;
+  if (thread.status && isRunningStatus(thread.status.type)) return true;
+  if (isRunningStatus(thread.turnStatus || thread.lifecycleStatus || thread.phase)) return true;
+  return false;
+}
+
+function isRunningStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "");
+  return (
+    status === "inprogress" ||
+    status === "running" ||
+    status === "started" ||
+    status === "streaming" ||
+    status === "working" ||
+    status === "busy"
+  );
 }
 
 function normalizeTurnItemsForDisplay(rawItems) {

@@ -6,11 +6,16 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PA
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_DIR="${ROOT_DIR}/data/runtime"
 PID_FILE="${RUNTIME_DIR}/phone-codex.pid"
-LOG_FILE="${RUNTIME_DIR}/phone-codex.log"
 TLS_DIR="${RUNTIME_DIR}/tls"
+LAUNCH_DIR="${HOME}/.phone-codex-launch"
+RUNTIME_LOG_FILE="${RUNTIME_DIR}/phone-codex.log"
+LOG_FILE="${LAUNCH_DIR}/phone-codex.log"
+RUNNER_FILE="${LAUNCH_DIR}/launch-phone-codex.sh"
+LAUNCH_LABEL="${LAUNCH_LABEL:-com.phone-codex.server}"
 
 mkdir -p "${RUNTIME_DIR}"
 mkdir -p "${TLS_DIR}"
+mkdir -p "${LAUNCH_DIR}"
 
 if [[ -f "${ROOT_DIR}/launcher.env" ]]; then
   set -a
@@ -24,9 +29,16 @@ BIND_HOST="${BIND_HOST:-0.0.0.0}"
 REQUIRE_LOGIN="${REQUIRE_LOGIN:-0}"
 SIMPLE_LOGIN_PASSWORD="${SIMPLE_LOGIN_PASSWORD:-}"
 CODEX_APP_SERVER_WS_SPAWN="${CODEX_APP_SERVER_WS_SPAWN:-1}"
+DESKTOP_NUDGE_MODE="${DESKTOP_NUDGE_MODE:-frontmost}"
+CODEX_DESKTOP_IPC_ENABLED="${CODEX_DESKTOP_IPC_ENABLED:-1}"
+CODEX_DESKTOP_IPC_SEND_MODE="${CODEX_DESKTOP_IPC_SEND_MODE:-prefer}"
+CODEX_DESKTOP_IPC_SOCKET_PATH="${CODEX_DESKTOP_IPC_SOCKET_PATH:-}"
+CODEX_DESKTOP_IPC_RECONNECT_MS="${CODEX_DESKTOP_IPC_RECONNECT_MS:-2000}"
+CODEX_DESKTOP_IPC_REQUEST_TIMEOUT_MS="${CODEX_DESKTOP_IPC_REQUEST_TIMEOUT_MS:-20000}"
 REMOTE_MODE="${REMOTE_MODE:-tailscale}"
 HTTPS_ENABLED="${HTTPS_ENABLED:-1}"
 HTTPS_REDIRECT_PORT="${HTTPS_REDIRECT_PORT:-0}"
+LOCAL_HTTP_PREVIEW_PORT="${LOCAL_HTTP_PREVIEW_PORT:-8786}"
 TLS_MODE="${TLS_MODE:-auto}" # auto|custom|tailscale|self-signed
 TLS_CERT_FILE="${TLS_CERT_FILE:-}"
 TLS_KEY_FILE="${TLS_KEY_FILE:-}"
@@ -35,6 +47,12 @@ TLS_HOSTNAME="${TLS_HOSTNAME:-}"
 TLS_INSECURE_SKIP_VERIFY="${TLS_INSECURE_SKIP_VERIFY:-0}"
 QR_READY="1"
 TAILSCALE_CERT_ERROR=""
+
+pause_before_close() {
+  if [[ -t 0 && -t 1 ]]; then
+    read -r -p "Press Enter to close..." || true
+  fi
+}
 
 if [[ "${HTTPS_ENABLED}" != "1" ]]; then
   echo "ERROR: HTTPS is required. Set HTTPS_ENABLED=1."
@@ -217,20 +235,20 @@ prepare_tls_material() {
 }
 
 if ! prepare_tls_material; then
-  read -r -p "Press Enter to close..."
+  pause_before_close
   exit 1
 fi
 
 REMOTE_URLS_JSON="[]"
 remote_url_parts=()
-if [[ -n "${LAN_IPV4}" ]]; then
-  remote_url_parts+=("\"${URL_SCHEME}://${LAN_IPV4}:${PORT}\"")
-fi
 if [[ -n "${TAILSCALE_IPV4}" ]]; then
   remote_url_parts+=("\"${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}\"")
 fi
 if [[ -n "${TAILSCALE_DNS}" ]]; then
   remote_url_parts+=("\"${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}\"")
+fi
+if [[ -n "${LAN_IPV4}" ]]; then
+  remote_url_parts+=("\"${URL_SCHEME}://${LAN_IPV4}:${PORT}\"")
 fi
 if [[ "${#remote_url_parts[@]}" -gt 0 ]]; then
   REMOTE_URLS_JSON="[${remote_url_parts[*]}]"
@@ -254,13 +272,74 @@ REMOTE_TAILSCALE_JSON="{\"installed\":${TS_INSTALLED},\"connected\":${TS_CONNECT
 if [[ "${REQUIRE_LOGIN}" == "1" && -z "${SIMPLE_LOGIN_PASSWORD}" ]]; then
   echo "ERROR: REQUIRE_LOGIN=1, but SIMPLE_LOGIN_PASSWORD is empty."
   echo "Please set a password in launcher.env."
-  read -r -p "Press Enter to close..."
+  pause_before_close
   exit 1
 fi
 
 is_pid_running() {
   local pid="$1"
   [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1
+}
+
+find_service_pid() {
+  lsof -tiTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null | awk 'NR==1 { print; exit }'
+}
+
+write_launch_runner() {
+  local runner_tmp="${RUNNER_FILE}.tmp"
+  local node_bin
+  local root_b64
+  local cert_b64
+  local key_b64
+  local ca_b64
+  node_bin="$(command -v node)"
+
+  root_b64="$(printf '%s' "${ROOT_DIR}" | base64 | tr -d '\n')"
+  cert_b64="$(printf '%s' "${TLS_CERT_FILE}" | base64 | tr -d '\n')"
+  key_b64="$(printf '%s' "${TLS_KEY_FILE}" | base64 | tr -d '\n')"
+  ca_b64="$(printf '%s' "${TLS_CA_FILE}" | base64 | tr -d '\n')"
+
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -euo pipefail'
+    echo 'decode_b64() {'
+    echo '  local value="$1"'
+    echo '  if base64 -D >/dev/null 2>&1 <<<""; then'
+    echo '    printf "%s" "${value}" | base64 -D'
+    echo '    return'
+    echo '  fi'
+    echo '  printf "%s" "${value}" | base64 --decode'
+    echo '}'
+    printf 'export PATH=%q\n' "${PATH}"
+    printf 'ROOT_DIR="$(decode_b64 %q)"\n' "${root_b64}"
+    echo 'cd "${ROOT_DIR}"'
+    printf 'export PORT=%q\n' "${PORT}"
+    printf 'export BIND_HOST=%q\n' "${BIND_HOST}"
+    printf 'export REQUIRE_LOGIN=%q\n' "${REQUIRE_LOGIN}"
+    printf 'export SIMPLE_LOGIN_PASSWORD=%q\n' "${SIMPLE_LOGIN_PASSWORD}"
+    printf 'export REMOTE_MODE=%q\n' "${REMOTE_MODE}"
+    printf 'export REMOTE_URLS_JSON=%q\n' "${REMOTE_URLS_JSON}"
+    printf 'export REMOTE_TAILSCALE_JSON=%q\n' "${REMOTE_TAILSCALE_JSON}"
+    printf 'export HTTPS_ENABLED=%q\n' '1'
+    printf 'export HTTPS_CERT_FILE="$(decode_b64 %q)"\n' "${cert_b64}"
+    printf 'export HTTPS_KEY_FILE="$(decode_b64 %q)"\n' "${key_b64}"
+    printf 'export HTTPS_CA_FILE="$(decode_b64 %q)"\n' "${ca_b64}"
+    printf 'export HTTPS_REDIRECT_PORT=%q\n' "${HTTPS_REDIRECT_PORT}"
+    printf 'export LOCAL_HTTP_PREVIEW_PORT=%q\n' "${LOCAL_HTTP_PREVIEW_PORT}"
+    printf 'export TLS_INSECURE_SKIP_VERIFY=%q\n' "${TLS_INSECURE_SKIP_VERIFY}"
+    printf 'export CODEX_APP_SERVER_WS_URL=%q\n' ''
+    printf 'export CODEX_APP_SERVER_WS_SPAWN=%q\n' "${CODEX_APP_SERVER_WS_SPAWN}"
+    printf 'export DESKTOP_NUDGE_MODE=%q\n' "${DESKTOP_NUDGE_MODE}"
+    printf 'export CODEX_DESKTOP_IPC_ENABLED=%q\n' "${CODEX_DESKTOP_IPC_ENABLED}"
+    printf 'export CODEX_DESKTOP_IPC_SEND_MODE=%q\n' "${CODEX_DESKTOP_IPC_SEND_MODE}"
+    printf 'export CODEX_DESKTOP_IPC_SOCKET_PATH=%q\n' "${CODEX_DESKTOP_IPC_SOCKET_PATH}"
+    printf 'export CODEX_DESKTOP_IPC_RECONNECT_MS=%q\n' "${CODEX_DESKTOP_IPC_RECONNECT_MS}"
+    printf 'export CODEX_DESKTOP_IPC_REQUEST_TIMEOUT_MS=%q\n' "${CODEX_DESKTOP_IPC_REQUEST_TIMEOUT_MS}"
+    printf 'exec %q %q\n' "${node_bin}" "server.js"
+  } >"${runner_tmp}"
+
+  chmod +x "${runner_tmp}"
+  mv "${runner_tmp}" "${RUNNER_FILE}"
 }
 
 url_encode() {
@@ -308,16 +387,16 @@ wait_for_health() {
 }
 
 pick_open_url() {
-  if [[ -n "${LAN_IPV4}" ]]; then
-    printf "%s\n" "${URL_SCHEME}://${LAN_IPV4}:${PORT}"
-    return
-  fi
   if [[ -n "${TAILSCALE_IPV4}" ]]; then
     printf "%s\n" "${URL_SCHEME}://${TAILSCALE_IPV4}:${PORT}"
     return
   fi
   if [[ -n "${TAILSCALE_DNS}" ]]; then
     printf "%s\n" "${URL_SCHEME}://${TAILSCALE_DNS}:${PORT}"
+    return
+  fi
+  if [[ -n "${LAN_IPV4}" ]]; then
+    printf "%s\n" "${URL_SCHEME}://${LAN_IPV4}:${PORT}"
     return
   fi
   printf "%s\n" "${URL_SCHEME}://127.0.0.1:${PORT}"
@@ -331,6 +410,9 @@ pick_setup_url() {
 
 print_urls() {
   local local_base="${URL_SCHEME}://127.0.0.1:${PORT}"
+  if [[ "${LOCAL_HTTP_PREVIEW_PORT}" =~ ^[0-9]+$ && "${LOCAL_HTTP_PREVIEW_PORT}" -gt 0 ]]; then
+    echo "Preview   : http://127.0.0.1:${LOCAL_HTTP_PREVIEW_PORT}"
+  fi
   echo "Local URL : ${local_base}"
   echo "Init URL  : $(build_init_url_from_base "${local_base}")"
   echo "Quick URL : $(build_setup_url_from_base "${local_base}")"
@@ -430,7 +512,7 @@ show_mobile_bootstrap() {
 
 if ! command -v node >/dev/null 2>&1; then
   echo "ERROR: node is not installed or not in PATH."
-  read -r -p "Press Enter to close..."
+  pause_before_close
   exit 1
 fi
 
@@ -451,7 +533,7 @@ if [[ -f "${PID_FILE}" ]]; then
     print_urls
     echo "Log file : ${LOG_FILE}"
     show_mobile_bootstrap
-    read -r -p "Press Enter to close..."
+    pause_before_close
     exit 0
   fi
   rm -f "${PID_FILE}"
@@ -464,12 +546,12 @@ if [[ -n "${LISTENING_PIDS}" ]]; then
     print_urls
     echo "Log file : ${LOG_FILE}"
     show_mobile_bootstrap
-    read -r -p "Press Enter to close..."
+    pause_before_close
     exit 0
   fi
   echo "ERROR: Port ${PORT} is already in use by another process:"
   echo "${LISTENING_PIDS}" | xargs -n1 ps -p 2>/dev/null || true
-  read -r -p "Press Enter to close..."
+  pause_before_close
   exit 1
 fi
 
@@ -481,47 +563,35 @@ echo "HTTPS    : enabled"
 echo "TLS mode : ${TLS_MODE}"
 echo "TLS cert : ${TLS_CERT_FILE}"
 echo "Remote   : ${REMOTE_MODE}"
+echo "Desktop IPC: ${CODEX_DESKTOP_IPC_ENABLED} / send=${CODEX_DESKTOP_IPC_SEND_MODE}"
 if [[ "${TLS_INSECURE_SKIP_VERIFY}" == "1" ]]; then
   echo "TLS verify: skipped for local checks (self-signed cert)"
 fi
 
-(
-  cd "${ROOT_DIR}"
-  nohup env \
-    PORT="${PORT}" \
-    BIND_HOST="${BIND_HOST}" \
-    REQUIRE_LOGIN="${REQUIRE_LOGIN}" \
-    SIMPLE_LOGIN_PASSWORD="${SIMPLE_LOGIN_PASSWORD}" \
-    REMOTE_MODE="${REMOTE_MODE}" \
-    REMOTE_URLS_JSON="${REMOTE_URLS_JSON}" \
-    REMOTE_TAILSCALE_JSON="${REMOTE_TAILSCALE_JSON}" \
-    HTTPS_ENABLED="1" \
-    HTTPS_CERT_FILE="${TLS_CERT_FILE}" \
-    HTTPS_KEY_FILE="${TLS_KEY_FILE}" \
-    HTTPS_CA_FILE="${TLS_CA_FILE}" \
-    HTTPS_REDIRECT_PORT="${HTTPS_REDIRECT_PORT}" \
-    CODEX_APP_SERVER_WS_URL="" \
-    CODEX_APP_SERVER_WS_SPAWN="${CODEX_APP_SERVER_WS_SPAWN}" \
-    node server.js >>"${LOG_FILE}" 2>&1 &
-  echo "$!" >"${PID_FILE}"
-)
-
-NEW_PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
-if ! is_pid_running "${NEW_PID}"; then
-  echo "ERROR: failed to start process."
-  echo "Check log: ${LOG_FILE}"
-  tail -n 40 "${LOG_FILE}" || true
-  rm -f "${PID_FILE}"
-  read -r -p "Press Enter to close..."
+if ! command -v launchctl >/dev/null 2>&1; then
+  echo "ERROR: launchctl is not available on this system."
+  pause_before_close
   exit 1
 fi
+
+write_launch_runner
+launchctl remove "${LAUNCH_LABEL}" >/dev/null 2>&1 || true
+rm -f "${PID_FILE}"
+: >"${LOG_FILE}"
+ln -sf "${LOG_FILE}" "${RUNTIME_LOG_FILE}"
+launchctl submit -l "${LAUNCH_LABEL}" -o "${LOG_FILE}" -e "${LOG_FILE}" -- "${RUNNER_FILE}"
 
 if ! wait_for_health; then
   echo "ERROR: service started but health check failed."
   echo "Check log: ${LOG_FILE}"
   tail -n 60 "${LOG_FILE}" || true
-  read -r -p "Press Enter to close..."
+  pause_before_close
   exit 1
+fi
+
+NEW_PID="$(find_service_pid || true)"
+if [[ -n "${NEW_PID}" ]]; then
+  printf '%s\n' "${NEW_PID}" >"${PID_FILE}"
 fi
 
 echo "phone-codex started successfully (PID ${NEW_PID})."
@@ -529,4 +599,4 @@ print_urls
 echo "Log file : ${LOG_FILE}"
 
 show_mobile_bootstrap
-read -r -p "Press Enter to close..."
+pause_before_close

@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { buildPhoneUrls } = require("../desktop/main/lib/phone-urls");
+const { buildPhoneUrls } = require("../archive/legacy-desktop-app/desktop/main/lib/phone-urls");
 
 test("buildPhoneUrls includes LAN and tailscale URLs when enabled", () => {
   const urls = buildPhoneUrls(
