@@ -99,6 +99,7 @@ const storageKeys = {
   displayMode: "codex_v2_display_mode",
   theme: "codex_v2_theme",
   language: "codex_v2_language",
+  modelEffort: "codex_v2_model_effort",
   advancedFiltersOpen: "codex_v2_advanced_filters_open",
   approvalsExpanded: "codex_v2_approvals_expanded",
 };
@@ -116,12 +117,16 @@ const INPUT_ACTIVITY_HOLD_MS = 1200;
 const LIVE_DELTA_RENDER_INTERVAL_MS = 120;
 const DEFAULT_LANGUAGE = "zh";
 const PROJECT_THREAD_PREVIEW_LIMIT = 5;
+const THREAD_LONG_PRESS_MS = 1000;
+const THREAD_LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 const MODEL_FLOAT_MODEL = "gpt-5.5";
 const MODEL_EFFORT_OPTIONS = {
+  low: "低",
   medium: "中",
   high: "高",
   xhigh: "超高",
 };
+const MODEL_EFFORT_ORDER = ["low", "medium", "high", "xhigh"];
 
 const I18N = {
   zh: {
@@ -199,6 +204,17 @@ const I18N = {
     "displayMode.compact": "简洁显示",
     "displayMode.detail": "详细显示",
     "displayMode.title": "页面显示模式：{mode}",
+    "modelMenu.title": "选择思考强度",
+    "modelMenu.low": "低",
+    "modelMenu.medium": "中",
+    "modelMenu.high": "高",
+    "modelMenu.xhigh": "超高",
+    "modelMenu.selected": "已选择 {label}",
+    "threadMenu.rename": "改名",
+    "threadMenu.archive": "归档",
+    "threadMenu.unarchive": "取消归档",
+    "threadMenu.copyId": "复制ID",
+    "threadMenu.fork": "派生",
     "login.title": "访问登录",
     "login.hint": "输入访问密码后继续；若服务器处于开放模式，将自动进入。",
     "login.password": "访问密码",
@@ -249,6 +265,16 @@ const I18N = {
     "status.unlockLoadFailed": "解除锁定后加载失败: {error}",
     "status.unlocked": "已解除单线程锁定",
     "status.openThreadFailed": "打开 thread 失败: {error}",
+    "status.renameThreadFailed": "改名失败: {error}",
+    "status.archiveThreadFailed": "归档失败: {error}",
+    "status.copyThreadFailed": "复制 ID 失败: {error}",
+    "status.forkThreadFailed": "派生失败: {error}",
+    "status.threadRenamed": "已改名",
+    "status.threadArchived": "已归档",
+    "status.threadUnarchived": "已取消归档",
+    "status.threadIdCopied": "已复制线程 ID",
+    "status.threadForked": "已派生新线程",
+    "status.modelEffortSet": "思考强度已切换为 {label}",
     "status.imageUploadFailed": "图片上传失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
@@ -278,6 +304,7 @@ const I18N = {
     "thread.archivedHint": " · 已归档",
     "thread.hiddenAgent": "已隐藏过程更新 {count} 条（桌面一致视图）",
     "thread.titleWithId": "线程 {id}",
+    "thread.renamePrompt": "输入新线程名",
     "item.commandSummary": "命令 · {status}",
     "item.fileChangeSummary": "文件变更 · {status}",
     "item.noImage": "无法显示图片: {alt}",
@@ -379,6 +406,17 @@ const I18N = {
     "displayMode.compact": "Compact",
     "displayMode.detail": "Detailed",
     "displayMode.title": "Page display mode: {mode}",
+    "modelMenu.title": "Reasoning effort",
+    "modelMenu.low": "Low",
+    "modelMenu.medium": "Medium",
+    "modelMenu.high": "High",
+    "modelMenu.xhigh": "Extra high",
+    "modelMenu.selected": "{label} selected",
+    "threadMenu.rename": "Rename",
+    "threadMenu.archive": "Archive",
+    "threadMenu.unarchive": "Unarchive",
+    "threadMenu.copyId": "Copy ID",
+    "threadMenu.fork": "Fork",
     "login.title": "Access Login",
     "login.hint":
       "Enter the access password to continue. If server runs in open mode, you'll be connected automatically.",
@@ -431,6 +469,16 @@ const I18N = {
     "status.unlockLoadFailed": "Reload after unlock failed: {error}",
     "status.unlocked": "Thread lock removed",
     "status.openThreadFailed": "Open thread failed: {error}",
+    "status.renameThreadFailed": "Rename failed: {error}",
+    "status.archiveThreadFailed": "Archive failed: {error}",
+    "status.copyThreadFailed": "Copy ID failed: {error}",
+    "status.forkThreadFailed": "Fork failed: {error}",
+    "status.threadRenamed": "Thread renamed",
+    "status.threadArchived": "Thread archived",
+    "status.threadUnarchived": "Thread unarchived",
+    "status.threadIdCopied": "Thread ID copied",
+    "status.threadForked": "Thread forked",
+    "status.modelEffortSet": "Reasoning effort set to {label}",
     "status.imageUploadFailed": "Image upload failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
@@ -460,6 +508,7 @@ const I18N = {
     "thread.execHint": " · (exec-source threads may be hidden on desktop)",
     "thread.archivedHint": " · archived",
     "thread.hiddenAgent": "{count} intermediate updates hidden (desktop-compatible view)",
+    "thread.renamePrompt": "Enter a new thread name",
     "item.commandSummary": "Command · {status}",
     "item.fileChangeSummary": "File Change · {status}",
     "item.noImage": "Cannot display image: {alt}",
@@ -558,6 +607,11 @@ const state = {
   modelChoice: {
     model: MODEL_FLOAT_MODEL,
     effort: null,
+    userEffort: null,
+  },
+  modelMenu: {
+    element: null,
+    open: false,
   },
   approvalsExpanded:
     String(localStorage.getItem(storageKeys.approvalsExpanded) || "").trim() === "1",
@@ -571,6 +625,18 @@ const state = {
     collapseTimer: null,
     reserveRaf: null,
     viewportListenersBound: false,
+  },
+  threadMenu: {
+    element: null,
+    open: false,
+    threadId: "",
+    pointerId: null,
+    timer: null,
+    startX: 0,
+    startY: 0,
+    pendingRow: null,
+    longPressTriggered: false,
+    suppressClickUntil: 0,
   },
 };
 
@@ -597,6 +663,10 @@ function init() {
   state.lockedThreadId = getLockedThreadId();
   state.desktopCompatibleMode = getDesktopCompatibleMode();
   state.displayMode = getDisplayModePreference();
+  state.modelChoice.userEffort = getModelEffortPreference();
+  if (state.modelChoice.userEffort) {
+    state.modelChoice.effort = state.modelChoice.userEffort;
+  }
   const initialBase = resolveInitialBaseUrl();
   const initialToken = localStorage.getItem(storageKeys.token) || "";
   elements.serverBase.value = normalizeBaseUrl(initialBase);
@@ -651,9 +721,36 @@ function normalizeModelEffort(value) {
     .replace(/[-\s]/g, "_")
     .toLowerCase();
   if (normalized === "extra_high" || normalized === "x_high") return "xhigh";
+  if (normalized === "minimal" || normalized === "none") return "low";
   return Object.prototype.hasOwnProperty.call(MODEL_EFFORT_OPTIONS, normalized)
     ? normalized
     : null;
+}
+
+function getModelEffortPreference() {
+  return normalizeModelEffort(localStorage.getItem(storageKeys.modelEffort));
+}
+
+function setModelEffortPreference(effort, options = {}) {
+  const normalized = normalizeModelEffort(effort);
+  if (!normalized) return;
+  state.modelChoice.userEffort = normalized;
+  state.modelChoice.effort = normalized;
+  localStorage.setItem(storageKeys.modelEffort, normalized);
+  renderModelFloat();
+  if (options.showStatus) {
+    setStatusKey("status.modelEffortSet", {
+      label: modelEffortLabel(normalized),
+    });
+  }
+}
+
+function modelEffortLabel(effort) {
+  const normalized = normalizeModelEffort(effort);
+  if (!normalized) return "—";
+  const key = `modelMenu.${normalized}`;
+  const translated = t(key);
+  return translated === key ? MODEL_EFFORT_OPTIONS[normalized] : translated;
 }
 
 function renderModelFloat() {
@@ -664,11 +761,18 @@ function renderModelFloat() {
     elements.modelNameCurrent.textContent = model;
   }
   if (elements.modelEffortCurrent) {
-    elements.modelEffortCurrent.textContent = effort ? MODEL_EFFORT_OPTIONS[effort] : "—";
+    elements.modelEffortCurrent.textContent = effort ? modelEffortLabel(effort) : "—";
   }
   const titleParts = [model];
-  if (effort) titleParts.push(MODEL_EFFORT_OPTIONS[effort]);
-  elements.modelFloat.title = `当前线程：${titleParts.join(" · ")}`;
+  if (effort) titleParts.push(modelEffortLabel(effort));
+  elements.modelFloat.title = t("modelMenu.title");
+  if (elements.modelFloatBadge) {
+    elements.modelFloatBadge.setAttribute(
+      "aria-expanded",
+      state.modelMenu.open ? "true" : "false"
+    );
+    elements.modelFloatBadge.title = titleParts.join(" · ");
+  }
 }
 
 function applyThreadRunDefaults(runDefaults) {
@@ -677,8 +781,147 @@ function applyThreadRunDefaults(runDefaults) {
     typeof src.model === "string" && src.model.trim()
       ? src.model.trim()
       : MODEL_FLOAT_MODEL;
-  state.modelChoice.effort = normalizeModelEffort(src.effort);
+  state.modelChoice.effort =
+    state.modelChoice.userEffort || normalizeModelEffort(src.effort);
   renderModelFloat();
+}
+
+function getRunOverridePayload() {
+  const effort = normalizeModelEffort(
+    state.modelChoice.userEffort || state.modelChoice.effort
+  );
+  return effort ? { effort } : {};
+}
+
+function toggleModelEffortMenu() {
+  if (state.modelMenu.open) {
+    closeModelEffortMenu();
+    return;
+  }
+  closeThreadContextMenu();
+  openModelEffortMenu();
+}
+
+function ensureModelEffortMenu() {
+  if (state.modelMenu.element) return state.modelMenu.element;
+  const menu = document.createElement("div");
+  menu.className = "thread-context-menu model-effort-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+  menu.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("[data-model-effort]");
+    if (!(button instanceof HTMLElement)) return;
+    const effort = normalizeModelEffort(button.dataset.modelEffort);
+    if (!effort) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setModelEffortPreference(effort, { showStatus: true });
+    closeModelEffortMenu();
+  });
+  document.body.append(menu);
+  state.modelMenu.element = menu;
+  return menu;
+}
+
+function openModelEffortMenu() {
+  if (!elements.modelFloatBadge) return;
+  const menu = ensureModelEffortMenu();
+  state.modelMenu.open = true;
+  renderModelEffortMenu(menu);
+  menu.hidden = false;
+  menu.classList.add("open");
+  elements.modelFloatBadge.classList.add("menu-open");
+  renderModelFloat();
+  positionModelEffortMenu(menu);
+  document.addEventListener("pointerdown", handleModelMenuDocumentPointerDown, true);
+  document.addEventListener("keydown", handleModelMenuDocumentKeydown, true);
+  document.addEventListener("scroll", handleModelMenuDocumentScroll, true);
+  window.addEventListener("resize", closeModelEffortMenu);
+}
+
+function closeModelEffortMenu() {
+  const menu = state.modelMenu.element;
+  if (menu) {
+    menu.hidden = true;
+    menu.classList.remove("open");
+  }
+  state.modelMenu.open = false;
+  if (elements.modelFloatBadge) {
+    elements.modelFloatBadge.classList.remove("menu-open");
+  }
+  renderModelFloat();
+  document.removeEventListener("pointerdown", handleModelMenuDocumentPointerDown, true);
+  document.removeEventListener("keydown", handleModelMenuDocumentKeydown, true);
+  document.removeEventListener("scroll", handleModelMenuDocumentScroll, true);
+  window.removeEventListener("resize", closeModelEffortMenu);
+}
+
+function renderModelEffortMenu(menu) {
+  menu.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "model-effort-menu-title";
+  title.textContent = t("modelMenu.title");
+  menu.append(title);
+  const current = normalizeModelEffort(state.modelChoice.effort) || "medium";
+  for (const effort of MODEL_EFFORT_ORDER) {
+    const label = modelEffortLabel(effort);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "thread-context-menu-item model-effort-menu-item";
+    button.dataset.modelEffort = effort;
+    button.setAttribute("role", "menuitemradio");
+    button.setAttribute("aria-checked", effort === current ? "true" : "false");
+    button.textContent = label;
+    if (effort === current) {
+      button.classList.add("selected");
+      button.title = t("modelMenu.selected", { label });
+    }
+    menu.append(button);
+  }
+}
+
+function positionModelEffortMenu(menu) {
+  if (!elements.modelFloatBadge) return;
+  const pad = 8;
+  const anchor = elements.modelFloatBadge.getBoundingClientRect();
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  const rect = menu.getBoundingClientRect();
+  let x = anchor.left;
+  let y = anchor.top - rect.height - 8;
+  if (y < pad) {
+    y = anchor.bottom + 8;
+  }
+  x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - rect.width - pad));
+  y = Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - rect.height - pad));
+  menu.style.left = `${Math.round(x)}px`;
+  menu.style.top = `${Math.round(y)}px`;
+}
+
+function handleModelMenuDocumentPointerDown(event) {
+  const menu = state.modelMenu.element;
+  const target = event.target;
+  if (menu && target instanceof Node && menu.contains(target)) return;
+  if (
+    elements.modelFloatBadge &&
+    target instanceof Node &&
+    elements.modelFloatBadge.contains(target)
+  ) {
+    return;
+  }
+  closeModelEffortMenu();
+}
+
+function handleModelMenuDocumentKeydown(event) {
+  if (event.key === "Escape") {
+    closeModelEffortMenu();
+  }
+}
+
+function handleModelMenuDocumentScroll() {
+  closeModelEffortMenu();
 }
 
 async function refreshServerBasePresets() {
@@ -1107,6 +1350,11 @@ function applyLanguage(language, options = {}) {
   renderContextUsage();
   renderQuotaUsage();
   renderDisplayModeControl();
+  renderModelFloat();
+  if (state.modelMenu.open && state.modelMenu.element) {
+    renderModelEffortMenu(state.modelMenu.element);
+    positionModelEffortMenu(state.modelMenu.element);
+  }
   if (state.lastStatusKey) {
     setStatusKey(state.lastStatusKey, state.lastStatusVars || {});
   }
@@ -1648,6 +1896,13 @@ function bindEvents() {
       setStatusKey("status.newThreadFailed", { error: asMessage(error) });
     });
   });
+  if (elements.modelFloatBadge) {
+    elements.modelFloatBadge.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleModelEffortMenu();
+    });
+  }
 
   if (elements.advancedFilters) {
     elements.advancedFiltersToggle.addEventListener("click", () => {
@@ -1716,7 +1971,25 @@ function bindEvents() {
     });
   }
 
+  elements.threadList.addEventListener("pointerdown", handleThreadListPointerDown);
+  elements.threadList.addEventListener("pointermove", handleThreadListPointerMove);
+  elements.threadList.addEventListener("pointerup", handleThreadListPointerEnd);
+  elements.threadList.addEventListener("pointercancel", handleThreadListPointerEnd);
+  elements.threadList.addEventListener("contextmenu", handleThreadListContextMenu);
+  window.addEventListener("resize", closeThreadContextMenu);
+
   elements.threadList.addEventListener("click", (event) => {
+    if (shouldSuppressThreadClick()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (state.threadMenu.open) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeThreadContextMenu({ suppressClick: true });
+      return;
+    }
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const actionElement = target.closest("[data-action]");
@@ -3168,6 +3441,7 @@ function renderThreadList() {
         row.className = "thread-item";
         row.dataset.threadId = thread.id;
         row.dataset.action = "open";
+        row.setAttribute("aria-haspopup", "menu");
         if (thread.id === state.selectedThreadId) {
           row.classList.add("active");
         }
@@ -3176,6 +3450,7 @@ function renderThreadList() {
         }
 
         const open = document.createElement("button");
+        open.type = "button";
         open.className = "thread-open";
         open.dataset.threadId = thread.id;
         open.dataset.action = "open";
@@ -3208,6 +3483,252 @@ function renderThreadList() {
 
     elements.threadList.append(group);
   }
+}
+
+function getThreadRowFromTarget(target) {
+  if (!(target instanceof Element)) return null;
+  return target.closest(".thread-item[data-thread-id]");
+}
+
+function handleThreadListPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  const row = getThreadRowFromTarget(event.target);
+  if (!row) return;
+  const threadId = String(row.dataset.threadId || "");
+  if (!threadId) return;
+
+  closeModelEffortMenu();
+  closeThreadContextMenu();
+  cancelThreadLongPress();
+  state.threadMenu.pointerId = event.pointerId;
+  state.threadMenu.startX = event.clientX;
+  state.threadMenu.startY = event.clientY;
+  state.threadMenu.pendingRow = row;
+  state.threadMenu.longPressTriggered = false;
+  row.classList.add("is-long-pressing");
+  state.threadMenu.timer = setTimeout(() => {
+    state.threadMenu.timer = null;
+    state.threadMenu.longPressTriggered = true;
+    state.threadMenu.suppressClickUntil = Date.now() + 900;
+    openThreadContextMenu(threadId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, THREAD_LONG_PRESS_MS);
+}
+
+function handleThreadListPointerMove(event) {
+  if (
+    state.threadMenu.pointerId === null ||
+    event.pointerId !== state.threadMenu.pointerId
+  ) {
+    return;
+  }
+  const dx = event.clientX - state.threadMenu.startX;
+  const dy = event.clientY - state.threadMenu.startY;
+  if (Math.hypot(dx, dy) > THREAD_LONG_PRESS_MOVE_TOLERANCE_PX) {
+    cancelThreadLongPress();
+  }
+}
+
+function handleThreadListPointerEnd(event) {
+  if (
+    state.threadMenu.pointerId !== null &&
+    event.pointerId === state.threadMenu.pointerId &&
+    state.threadMenu.longPressTriggered
+  ) {
+    event.preventDefault();
+    state.threadMenu.suppressClickUntil = Date.now() + 900;
+  }
+  cancelThreadLongPress();
+}
+
+function handleThreadListContextMenu(event) {
+  const row = getThreadRowFromTarget(event.target);
+  if (!row) return;
+  const threadId = String(row.dataset.threadId || "");
+  if (!threadId) return;
+  event.preventDefault();
+  cancelThreadLongPress();
+  state.threadMenu.suppressClickUntil = Date.now() + 350;
+  openThreadContextMenu(threadId, {
+    x: event.clientX,
+    y: event.clientY,
+  });
+}
+
+function cancelThreadLongPress() {
+  if (state.threadMenu.timer) {
+    clearTimeout(state.threadMenu.timer);
+  }
+  if (state.threadMenu.pendingRow) {
+    state.threadMenu.pendingRow.classList.remove("is-long-pressing");
+  }
+  state.threadMenu.timer = null;
+  state.threadMenu.pointerId = null;
+  state.threadMenu.pendingRow = null;
+  state.threadMenu.longPressTriggered = false;
+}
+
+function shouldSuppressThreadClick() {
+  return Date.now() < Number(state.threadMenu.suppressClickUntil || 0);
+}
+
+function ensureThreadContextMenu() {
+  if (state.threadMenu.element) return state.threadMenu.element;
+  const menu = document.createElement("div");
+  menu.className = "thread-context-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+  menu.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("[data-menu-action]");
+    if (!(button instanceof HTMLElement)) return;
+    const action = String(button.dataset.menuAction || "");
+    const threadId = String(state.threadMenu.threadId || "");
+    if (!action || !threadId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeThreadContextMenu({ suppressClick: true });
+    handleThreadMenuAction(action, threadId).catch((error) => {
+      const statusKey =
+        action === "rename"
+          ? "status.renameThreadFailed"
+          : action === "archive"
+            ? "status.archiveThreadFailed"
+            : action === "copy"
+              ? "status.copyThreadFailed"
+              : "status.forkThreadFailed";
+      setStatusKey(statusKey, { error: asMessage(error) });
+    });
+  });
+  document.body.append(menu);
+  state.threadMenu.element = menu;
+  return menu;
+}
+
+function openThreadContextMenu(threadId, point = {}) {
+  const thread = findThreadById(threadId);
+  if (!thread) return;
+  closeModelEffortMenu();
+  const menu = ensureThreadContextMenu();
+  state.threadMenu.threadId = String(threadId);
+  state.threadMenu.open = true;
+  renderThreadContextMenu(menu, thread);
+  menu.hidden = false;
+  menu.classList.add("open");
+  markThreadContextMenuRow(threadId);
+  positionThreadContextMenu(menu, point);
+  document.addEventListener("pointerdown", handleThreadMenuDocumentPointerDown, true);
+  document.addEventListener("keydown", handleThreadMenuDocumentKeydown, true);
+  document.addEventListener("scroll", handleThreadMenuDocumentScroll, true);
+}
+
+function closeThreadContextMenu(options = {}) {
+  const suppressClick = Boolean(options && options.suppressClick);
+  cancelThreadLongPress();
+  const menu = state.threadMenu.element;
+  if (menu) {
+    menu.hidden = true;
+    menu.classList.remove("open");
+  }
+  state.threadMenu.open = false;
+  state.threadMenu.threadId = "";
+  markThreadContextMenuRow("");
+  document.removeEventListener("pointerdown", handleThreadMenuDocumentPointerDown, true);
+  document.removeEventListener("keydown", handleThreadMenuDocumentKeydown, true);
+  document.removeEventListener("scroll", handleThreadMenuDocumentScroll, true);
+  if (suppressClick) {
+    state.threadMenu.suppressClickUntil = Date.now() + 350;
+  }
+}
+
+function renderThreadContextMenu(menu, thread) {
+  menu.innerHTML = "";
+  const archived = Boolean(thread && thread.archived);
+  const actions = [
+    { action: "rename", label: t("threadMenu.rename") },
+    {
+      action: "archive",
+      label: archived ? t("threadMenu.unarchive") : t("threadMenu.archive"),
+    },
+    { action: "copy", label: t("threadMenu.copyId") },
+    { action: "fork", label: t("threadMenu.fork") },
+  ];
+  for (const item of actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "thread-context-menu-item";
+    button.dataset.menuAction = item.action;
+    button.setAttribute("role", "menuitem");
+    button.textContent = item.label;
+    menu.append(button);
+  }
+}
+
+function positionThreadContextMenu(menu, point = {}) {
+  const pad = 8;
+  const rawX = Number(point.x);
+  const rawY = Number(point.y);
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  const rect = menu.getBoundingClientRect();
+  const fallbackX = Math.max(pad, Math.round(window.innerWidth * 0.42));
+  const fallbackY = Math.max(pad, Math.round(window.innerHeight * 0.35));
+  let x = Number.isFinite(rawX) ? rawX : fallbackX;
+  let y = Number.isFinite(rawY) ? rawY : fallbackY;
+  x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - rect.width - pad));
+  y = Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - rect.height - pad));
+  menu.style.left = `${Math.round(x)}px`;
+  menu.style.top = `${Math.round(y)}px`;
+}
+
+function markThreadContextMenuRow(threadId) {
+  const active = elements.threadList.querySelectorAll(".thread-item.menu-open");
+  for (const item of active) {
+    item.classList.remove("menu-open");
+  }
+  if (!threadId) return;
+  const safeId = cssStringEscape(threadId);
+  const row = elements.threadList.querySelector(
+    `.thread-item[data-thread-id="${safeId}"]`
+  );
+  if (row) row.classList.add("menu-open");
+}
+
+function handleThreadMenuDocumentPointerDown(event) {
+  const menu = state.threadMenu.element;
+  const target = event.target;
+  if (menu && target instanceof Node && menu.contains(target)) return;
+  closeThreadContextMenu({ suppressClick: true });
+}
+
+function handleThreadMenuDocumentKeydown(event) {
+  if (event.key === "Escape") {
+    closeThreadContextMenu({ suppressClick: true });
+  }
+}
+
+function handleThreadMenuDocumentScroll() {
+  closeThreadContextMenu({ suppressClick: true });
+}
+
+function findThreadById(threadId) {
+  const id = String(threadId || "");
+  return (
+    state.threads.find((item) => item && String(item.id) === id) ||
+    (state.selectedThread && String(state.selectedThread.id) === id
+      ? state.selectedThread
+      : null)
+  );
+}
+
+function cssStringEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(String(value || ""));
+  }
+  return String(value || "").replace(/["\\]/g, "\\$&");
 }
 
 function getThreadDisplayName(thread) {
@@ -3720,11 +4241,15 @@ async function createThread() {
       // Prefer creating the thread within the currently expanded/selected project.
       // Otherwise Codex may default to "/" and the new thread becomes hard to find.
       const preferredCwd = resolvePreferredCwdForNewThread();
+      const runOverrides = getRunOverridePayload();
       let data = null;
       try {
         data = await apiFetchJson("/api/v2/threads", {
           method: "POST",
-          body: preferredCwd ? { cwd: preferredCwd } : {},
+          body: {
+            ...runOverrides,
+            ...(preferredCwd ? { cwd: preferredCwd } : {}),
+          },
         });
       } catch (error) {
         if (isCodexReloginRequiredError(error)) {
@@ -3736,7 +4261,7 @@ async function createThread() {
         // If selected/expanded project path is stale, retry without cwd.
         data = await apiFetchJson("/api/v2/threads", {
           method: "POST",
-          body: {},
+          body: runOverrides,
         });
       }
       const thread = data.thread;
@@ -3833,6 +4358,125 @@ async function selectThreadWithRetry(threadId, options = {}) {
   if (lastError) throw lastError;
 }
 
+async function handleThreadMenuAction(action, threadId) {
+  if (action === "rename") {
+    await renameThread(threadId);
+    return;
+  }
+  if (action === "archive") {
+    await archiveOrUnarchiveThread(threadId);
+    return;
+  }
+  if (action === "copy") {
+    await copyThreadId(threadId);
+    return;
+  }
+  if (action === "fork") {
+    await forkThread(threadId);
+  }
+}
+
+async function renameThread(threadId) {
+  const item = findThreadById(threadId);
+  const initial =
+    getThreadDisplayName(item) ||
+    String((item && item.preview) || "").trim().slice(0, 64);
+  const name = window.prompt(t("thread.renamePrompt"), initial);
+  if (!name || !name.trim()) return;
+  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/name`, {
+    method: "POST",
+    body: { name: name.trim() },
+  });
+  await loadThreads({ preserveSelection: true });
+  if (state.selectedThreadId === threadId) {
+    await loadCurrentThread(threadId, { silent: true });
+  }
+  setStatusKey("status.threadRenamed");
+}
+
+async function archiveOrUnarchiveThread(threadId) {
+  const item = findThreadById(threadId);
+  if (item && item.archived) {
+    await unarchiveThread(threadId);
+    return;
+  }
+  await archiveThread(threadId);
+}
+
+async function archiveThread(threadId) {
+  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/archive`, {
+    method: "POST",
+    body: {},
+  });
+  await loadThreads({ preserveSelection: true });
+  if (state.selectedThreadId === threadId) {
+    await loadCurrentThread(threadId, { silent: true });
+  }
+  setStatusKey("status.threadArchived");
+}
+
+async function unarchiveThread(threadId) {
+  await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/unarchive`, {
+    method: "POST",
+    body: {},
+  });
+  await loadThreads({ preserveSelection: true });
+  if (state.selectedThreadId === threadId) {
+    await loadCurrentThread(threadId, { silent: true });
+  }
+  setStatusKey("status.threadUnarchived");
+}
+
+async function copyThreadId(threadId) {
+  await copyTextToClipboard(String(threadId || ""));
+  setStatusKey("status.threadIdCopied");
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return;
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.append(textarea);
+  textarea.select();
+  try {
+    const ok = document.execCommand("copy");
+    if (!ok) throw new Error("copy command failed");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function forkThread(threadId) {
+  const data = await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/fork`, {
+    method: "POST",
+    body: getRunOverridePayload(),
+  });
+  const forkedId = data.thread && data.thread.id ? String(data.thread.id) : "";
+  await loadThreads({ preserveSelection: true });
+  if (forkedId) {
+    try {
+      await selectThreadWithRetry(forkedId, {
+        attempts: 5,
+        baseDelayMs: 160,
+      });
+    } catch (error) {
+      if (!isRecoverableThreadSelectionError(error)) {
+        throw error;
+      }
+    }
+  }
+  setStatusKey("status.threadForked");
+}
+
 async function sendCurrentMessage() {
   if (state.sending) return;
   let threadId = state.lockedThreadId || state.selectedThreadId;
@@ -3854,6 +4498,7 @@ async function sendCurrentMessage() {
   const payload = {
     text,
     imageMediaIds: state.pendingImages.map((item) => item.mediaId),
+    ...getRunOverridePayload(),
   };
 
   state.sending = true;

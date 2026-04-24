@@ -87,11 +87,18 @@
         <form id="composer" class="composer">
           <div class="composer-topline">
             <section id="model-float" class="model-float" aria-label="模型设置">
-              <div id="model-float-badge" class="model-float-badge" aria-live="polite">
+              <button
+                id="model-float-badge"
+                class="model-float-badge"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-live="polite"
+              >
                 <span class="model-float-kicker">MODEL</span>
                 <span class="model-float-main">gpt-5.5</span>
                 <span id="model-effort-current" class="model-float-effort">中</span>
-              </div>
+              </button>
             </section>
             <button id="composer-toggle" class="composer-toggle" type="button" aria-label="展开输入" aria-expanded="false">⌃</button>
             <div
