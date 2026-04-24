@@ -99,7 +99,6 @@ const storageKeys = {
   displayMode: "codex_v2_display_mode",
   theme: "codex_v2_theme",
   language: "codex_v2_language",
-  modelEffort: "codex_v2_model_effort",
   advancedFiltersOpen: "codex_v2_advanced_filters_open",
   approvalsExpanded: "codex_v2_approvals_expanded",
 };
@@ -126,8 +125,6 @@ const MODEL_EFFORT_OPTIONS = {
   high: "高",
   xhigh: "超高",
 };
-const MODEL_EFFORT_ORDER = ["low", "medium", "high", "xhigh"];
-
 const I18N = {
   zh: {
     "page.title": "Codex 手机 Threads",
@@ -204,12 +201,11 @@ const I18N = {
     "displayMode.compact": "简洁显示",
     "displayMode.detail": "详细显示",
     "displayMode.title": "页面显示模式：{mode}",
-    "modelMenu.title": "选择思考强度",
+    "modelMenu.title": "当前线程思考强度",
     "modelMenu.low": "低",
     "modelMenu.medium": "中",
     "modelMenu.high": "高",
     "modelMenu.xhigh": "超高",
-    "modelMenu.selected": "已选择 {label}",
     "threadMenu.rename": "改名",
     "threadMenu.archive": "归档",
     "threadMenu.unarchive": "取消归档",
@@ -274,7 +270,6 @@ const I18N = {
     "status.threadUnarchived": "已取消归档",
     "status.threadIdCopied": "已复制线程 ID",
     "status.threadForked": "已派生新线程",
-    "status.modelEffortSet": "思考强度已切换为 {label}",
     "status.imageUploadFailed": "图片上传失败: {error}",
     "status.approvalSubmitFailed": "审批提交失败: {error}",
     "status.sendFailed": "发送失败: {error}",
@@ -406,12 +401,11 @@ const I18N = {
     "displayMode.compact": "Compact",
     "displayMode.detail": "Detailed",
     "displayMode.title": "Page display mode: {mode}",
-    "modelMenu.title": "Reasoning effort",
+    "modelMenu.title": "Current thread effort",
     "modelMenu.low": "Low",
     "modelMenu.medium": "Medium",
     "modelMenu.high": "High",
     "modelMenu.xhigh": "Extra high",
-    "modelMenu.selected": "{label} selected",
     "threadMenu.rename": "Rename",
     "threadMenu.archive": "Archive",
     "threadMenu.unarchive": "Unarchive",
@@ -478,7 +472,6 @@ const I18N = {
     "status.threadUnarchived": "Thread unarchived",
     "status.threadIdCopied": "Thread ID copied",
     "status.threadForked": "Thread forked",
-    "status.modelEffortSet": "Reasoning effort set to {label}",
     "status.imageUploadFailed": "Image upload failed: {error}",
     "status.approvalSubmitFailed": "Approval submit failed: {error}",
     "status.sendFailed": "Send failed: {error}",
@@ -607,11 +600,6 @@ const state = {
   modelChoice: {
     model: MODEL_FLOAT_MODEL,
     effort: null,
-    userEffort: null,
-  },
-  modelMenu: {
-    element: null,
-    open: false,
   },
   approvalsExpanded:
     String(localStorage.getItem(storageKeys.approvalsExpanded) || "").trim() === "1",
@@ -664,10 +652,6 @@ function init() {
   state.lockedThreadId = getLockedThreadId();
   state.desktopCompatibleMode = getDesktopCompatibleMode();
   state.displayMode = getDisplayModePreference();
-  state.modelChoice.userEffort = getModelEffortPreference();
-  if (state.modelChoice.userEffort) {
-    state.modelChoice.effort = state.modelChoice.userEffort;
-  }
   const initialBase = resolveInitialBaseUrl();
   const initialToken = localStorage.getItem(storageKeys.token) || "";
   elements.serverBase.value = normalizeBaseUrl(initialBase);
@@ -728,24 +712,6 @@ function normalizeModelEffort(value) {
     : null;
 }
 
-function getModelEffortPreference() {
-  return normalizeModelEffort(localStorage.getItem(storageKeys.modelEffort));
-}
-
-function setModelEffortPreference(effort, options = {}) {
-  const normalized = normalizeModelEffort(effort);
-  if (!normalized) return;
-  state.modelChoice.userEffort = normalized;
-  state.modelChoice.effort = normalized;
-  localStorage.setItem(storageKeys.modelEffort, normalized);
-  renderModelFloat();
-  if (options.showStatus) {
-    setStatusKey("status.modelEffortSet", {
-      label: modelEffortLabel(normalized),
-    });
-  }
-}
-
 function modelEffortLabel(effort) {
   const normalized = normalizeModelEffort(effort);
   if (!normalized) return "—";
@@ -768,10 +734,6 @@ function renderModelFloat() {
   if (effort) titleParts.push(modelEffortLabel(effort));
   elements.modelFloat.title = t("modelMenu.title");
   if (elements.modelFloatBadge) {
-    elements.modelFloatBadge.setAttribute(
-      "aria-expanded",
-      state.modelMenu.open ? "true" : "false"
-    );
     elements.modelFloatBadge.title = titleParts.join(" · ");
   }
 }
@@ -782,175 +744,12 @@ function applyThreadRunDefaults(runDefaults) {
     typeof src.model === "string" && src.model.trim()
       ? src.model.trim()
       : MODEL_FLOAT_MODEL;
-  state.modelChoice.effort =
-    state.modelChoice.userEffort || normalizeModelEffort(src.effort);
+  state.modelChoice.effort = normalizeModelEffort(src.effort);
   renderModelFloat();
 }
 
 function getRunOverridePayload() {
-  const effort = normalizeModelEffort(
-    state.modelChoice.userEffort || state.modelChoice.effort
-  );
-  return effort ? { effort } : {};
-}
-
-function toggleModelEffortMenu() {
-  if (state.modelMenu.open) {
-    closeModelEffortMenu();
-    return;
-  }
-  closeThreadContextMenu();
-  openModelEffortMenu();
-}
-
-function ensureModelEffortMenu() {
-  if (state.modelMenu.element) return state.modelMenu.element;
-  const menu = document.createElement("div");
-  menu.className = "thread-context-menu model-effort-menu";
-  menu.setAttribute("role", "menu");
-  menu.hidden = true;
-  menu.addEventListener("contextmenu", suppressNativeContextMenu);
-  menu.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const button = target.closest("[data-model-effort]");
-    if (!(button instanceof HTMLElement)) return;
-    const effort = normalizeModelEffort(button.dataset.modelEffort);
-    if (!effort) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setModelEffortPreference(effort, { showStatus: true });
-    closeModelEffortMenu();
-  });
-  document.body.append(menu);
-  state.modelMenu.element = menu;
-  return menu;
-}
-
-function openModelEffortMenu() {
-  if (!elements.modelFloatBadge) return;
-  const menu = ensureModelEffortMenu();
-  state.modelMenu.open = true;
-  renderModelEffortMenu(menu);
-  menu.hidden = false;
-  menu.classList.add("open");
-  elements.modelFloatBadge.classList.add("menu-open");
-  renderModelFloat();
-  positionModelEffortMenu(menu);
-  document.addEventListener("pointerdown", handleModelMenuDocumentPointerDown, true);
-  document.addEventListener("keydown", handleModelMenuDocumentKeydown, true);
-  document.addEventListener("scroll", handleModelMenuDocumentScroll, true);
-  window.addEventListener("resize", closeModelEffortMenu);
-}
-
-function closeModelEffortMenu() {
-  const menu = state.modelMenu.element;
-  if (menu) {
-    menu.hidden = true;
-    menu.classList.remove("open");
-  }
-  state.modelMenu.open = false;
-  if (elements.modelFloatBadge) {
-    elements.modelFloatBadge.classList.remove("menu-open");
-  }
-  renderModelFloat();
-  document.removeEventListener("pointerdown", handleModelMenuDocumentPointerDown, true);
-  document.removeEventListener("keydown", handleModelMenuDocumentKeydown, true);
-  document.removeEventListener("scroll", handleModelMenuDocumentScroll, true);
-  window.removeEventListener("resize", closeModelEffortMenu);
-}
-
-function renderModelEffortMenu(menu) {
-  menu.innerHTML = "";
-  const title = document.createElement("div");
-  title.className = "model-effort-menu-title";
-  title.textContent = t("modelMenu.title");
-  menu.append(title);
-  const current = normalizeModelEffort(state.modelChoice.effort) || "medium";
-  for (const effort of MODEL_EFFORT_ORDER) {
-    const label = modelEffortLabel(effort);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "thread-context-menu-item model-effort-menu-item";
-    button.dataset.modelEffort = effort;
-    button.setAttribute("role", "menuitemradio");
-    button.setAttribute("aria-checked", effort === current ? "true" : "false");
-    button.textContent = label;
-    if (effort === current) {
-      button.classList.add("selected");
-      button.title = t("modelMenu.selected", { label });
-    }
-    menu.append(button);
-  }
-}
-
-function positionModelEffortMenu(menu) {
-  if (!elements.modelFloatBadge) return;
-  const pad = 10;
-  const anchor = elements.modelFloatBadge.getBoundingClientRect();
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const effectiveAnchorTop = Math.min(
-    Math.max(anchor.top, pad + 104),
-    Math.max(pad + 104, viewportHeight - pad)
-  );
-  menu.style.left = "0px";
-  menu.style.top = "0px";
-  menu.style.maxHeight = "";
-  const naturalHeight = Math.max(menu.scrollHeight || 0, 160);
-  const availableAbove = Math.max(0, effectiveAnchorTop - pad - 8);
-  const viewportLimit = Math.max(120, viewportHeight - pad * 2);
-  const maxHeight = Math.min(
-    naturalHeight,
-    availableAbove > 0 ? availableAbove : viewportLimit
-  );
-  menu.style.maxHeight = `${Math.floor(Math.max(96, maxHeight))}px`;
-  const rect = menu.getBoundingClientRect();
-  let x = anchor.left;
-  let y = effectiveAnchorTop - rect.height - 8;
-  x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - rect.width - pad));
-  y = Math.min(Math.max(pad, y), Math.max(pad, viewportHeight - rect.height - pad));
-  menu.style.left = `${Math.round(x)}px`;
-  menu.style.top = `${Math.round(y)}px`;
-}
-
-function handleModelMenuDocumentPointerDown(event) {
-  const menu = state.modelMenu.element;
-  const target = event.target;
-  if (menu && target instanceof Node && menu.contains(target)) return;
-  if (
-    elements.modelFloatBadge &&
-    target instanceof Node &&
-    elements.modelFloatBadge.contains(target)
-  ) {
-    return;
-  }
-  closeModelEffortMenu();
-}
-
-function handleModelMenuDocumentKeydown(event) {
-  if (event.key === "Escape") {
-    closeModelEffortMenu();
-  }
-}
-
-function handleModelMenuDocumentScroll() {
-  closeModelEffortMenu();
-}
-
-function handleModelNativeContextMenuCapture(event) {
-  const target = event.target;
-  if (!(target instanceof Node)) return;
-  const menu = state.modelMenu.element;
-  const isModelControl =
-    (elements.modelFloat && elements.modelFloat.contains(target)) ||
-    (menu && menu.contains(target));
-  if (!isModelControl) return;
-  suppressNativeContextMenu(event);
-}
-
-function suppressNativeContextMenu(event) {
-  event.preventDefault();
-  event.stopPropagation();
+  return {};
 }
 
 async function refreshServerBasePresets() {
@@ -1380,10 +1179,6 @@ function applyLanguage(language, options = {}) {
   renderQuotaUsage();
   renderDisplayModeControl();
   renderModelFloat();
-  if (state.modelMenu.open && state.modelMenu.element) {
-    renderModelEffortMenu(state.modelMenu.element);
-    positionModelEffortMenu(state.modelMenu.element);
-  }
   if (state.lastStatusKey) {
     setStatusKey(state.lastStatusKey, state.lastStatusVars || {});
   }
@@ -1925,20 +1720,6 @@ function bindEvents() {
       setStatusKey("status.newThreadFailed", { error: asMessage(error) });
     });
   });
-  if (elements.modelFloatBadge) {
-    elements.modelFloatBadge.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleModelEffortMenu();
-    });
-    elements.modelFloatBadge.addEventListener(
-      "contextmenu",
-      handleModelNativeContextMenuCapture,
-      true
-    );
-  }
-  document.addEventListener("contextmenu", handleModelNativeContextMenuCapture, true);
-
   if (elements.advancedFilters) {
     elements.advancedFiltersToggle.addEventListener("click", () => {
       const next = !elements.advancedFilters.classList.contains("open");

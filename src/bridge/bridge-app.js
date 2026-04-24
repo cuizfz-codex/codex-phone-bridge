@@ -2156,13 +2156,17 @@ async function resolveThreadUsageForThread(threadId, thread) {
 }
 
 async function resolveThreadRunDefaultsForThread(threadId, thread) {
+  const fromDesktop = desktopIpcMonitor
+    ? desktopIpcMonitor.getThreadRunDefaults(String(threadId))
+    : null;
+  if (fromDesktop && (fromDesktop.model || fromDesktop.effort)) {
+    return fromDesktop;
+  }
   const fromFile = await readThreadRunDefaultsFromRolloutPath(thread);
   if (fromFile && (fromFile.model || fromFile.effort)) {
     return fromFile;
   }
-  return desktopIpcMonitor
-    ? desktopIpcMonitor.getThreadRunDefaults(String(threadId))
-    : null;
+  return null;
 }
 
 async function readThreadRunDefaultsFromRolloutPath(thread) {

@@ -400,7 +400,7 @@ select:focus-visible {
     linear-gradient(180deg, color-mix(in srgb, var(--brand) 90%, white 10%), var(--brand));
   color: #fff;
   padding: 8px 11px;
-  cursor: pointer;
+  cursor: default;
   font-weight: 600;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--brand) 75%, black 25%);
 }
@@ -501,18 +501,11 @@ select:focus-visible {
     transform 140ms ease;
 }
 
-.model-float-badge:hover,
-.model-float-badge:focus-visible,
-.model-float-badge.menu-open {
+.model-float-badge:hover {
   border-color: color-mix(in srgb, var(--brand) 62%, var(--line));
   box-shadow:
     var(--shadow-active),
     inset 0 1px 0 color-mix(in srgb, white 36%, transparent);
-  outline: none;
-}
-
-.model-float-badge:active {
-  transform: translateY(1px);
 }
 
 .model-float-kicker {
@@ -1094,51 +1087,6 @@ select:focus-visible {
   background: color-mix(in srgb, var(--brand) 14%, var(--surface-soft));
   color: var(--thread-title-active);
   outline: none;
-}
-
-.model-effort-menu {
-  min-width: 132px;
-  max-height: calc(100dvh - 20px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  z-index: 120;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.model-effort-menu-title {
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.05em;
-  padding: 7px 10px 5px;
-  text-transform: uppercase;
-}
-
-.model-effort-menu-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 12px;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-  -webkit-user-drag: none;
-}
-
-.model-effort-menu-item.selected {
-  background: color-mix(in srgb, var(--brand) 16%, var(--surface-soft));
-  color: var(--thread-title-active);
-}
-
-.model-effort-menu-item.selected::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--brand);
 }
 
 .chat {
