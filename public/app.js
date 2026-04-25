@@ -4370,17 +4370,18 @@ async function sendCurrentMessage() {
     imageMediaIds: state.pendingImages.map((item) => item.mediaId),
     ...getRunOverridePayload(),
   };
+  const pendingImagesSnapshot = state.pendingImages.map((item) => ({ ...item }));
 
   state.sending = true;
   elements.sendBtn.disabled = true;
   setStatusKey("status.sending");
+  elements.input.value = "";
+  clearPendingAttachments();
   try {
     const sent = await apiFetchJson(`/api/v2/threads/${encodeURIComponent(threadId)}/turns`, {
       method: "POST",
       body: payload,
     });
-    elements.input.value = "";
-    clearPendingAttachments();
     const turnId =
       sent && sent.turn && sent.turn.id ? String(sent.turn.id) : "";
     if (turnId) {
@@ -4397,6 +4398,18 @@ async function sendCurrentMessage() {
     loadThreads({ preserveSelection: true, silent: true }).catch(() => {
       // noop
     });
+  } catch (error) {
+    const canRestoreDraft =
+      elements.input &&
+      !String(elements.input.value || "").trim() &&
+      state.pendingImages.length === 0;
+    if (canRestoreDraft) {
+      elements.input.value = text;
+      state.pendingImages = pendingImagesSnapshot;
+      renderPendingImages();
+      expandComposerMobile();
+    }
+    throw error;
   } finally {
     state.sending = false;
     elements.sendBtn.disabled = false;

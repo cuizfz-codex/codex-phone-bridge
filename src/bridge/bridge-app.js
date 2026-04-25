@@ -639,9 +639,15 @@ async function handleBridgeRequest(req, res) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const statusCode = normalizeHttpErrorStatus(error);
+    const code = error && error.code ? String(error.code) : null;
+    console.warn(
+      `[phone-codex-bridge] request failed ${req.method || ""} ${pathname} status=${statusCode}${
+        code ? ` code=${code}` : ""
+      }: ${message}`
+    );
     sendJson(res, statusCode, {
       ok: false,
-      code: error && error.code ? String(error.code) : null,
+      code,
       error: message,
     });
   }
@@ -875,6 +881,11 @@ async function handleV2Api(req, res, url, pathname) {
       });
     }
     threadSync.triggerImmediateThreadRead(threadId);
+    console.log(
+      `[phone-codex-bridge] turn accepted thread=${threadId} via=${
+        result && result.via ? result.via : "unknown"
+      } turn=${turnId || "-"}`
+    );
     sendJson(res, 200, {
       ok: true,
       ...result,
@@ -1675,10 +1686,13 @@ async function startTurnWithPreferredTransport(threadId, input, body) {
     desktopIpcMonitor && typeof desktopIpcMonitor.getThreadRuntimeState === "function"
       ? desktopIpcMonitor.getThreadRuntimeState(threadId)
       : null;
-  const desktopOwnedThread = Boolean(
-    desktopRuntimeState &&
-      (desktopRuntimeState.ownerClientId || desktopRuntimeState.running === true)
+  const desktopThreadRunning = Boolean(
+    desktopRuntimeState && desktopRuntimeState.running === true
   );
+  const desktopThreadOwnerClientId =
+    desktopRuntimeState && desktopRuntimeState.ownerClientId
+      ? String(desktopRuntimeState.ownerClientId)
+      : "";
   if (
     desktopIpcMonitor &&
     desktopIpcMonitor.status().enabled &&
@@ -1698,18 +1712,21 @@ async function startTurnWithPreferredTransport(threadId, input, body) {
       };
     } catch (error) {
       ipcError = error;
-      if (desktopOwnedThread) {
+      if (desktopThreadRunning) {
         const strictError = new Error(
-          `Codex desktop IPC failed for an observed desktop thread; app-server fallback was refused to avoid divergent desktop/web state: ${
+          `Codex desktop IPC failed for a currently running desktop thread; app-server fallback was refused to avoid concurrent turns: ${
             error && error.message ? error.message : String(error)
           }`
         );
-        strictError.code = "DESKTOP_IPC_OWNED_THREAD_SEND_FAILED";
+        strictError.code = "DESKTOP_IPC_RUNNING_THREAD_SEND_FAILED";
         strictError.statusCode = 409;
         throw strictError;
       }
+      const fallbackContext = desktopThreadOwnerClientId
+        ? `idle desktop-owned thread ${desktopThreadOwnerClientId}`
+        : "unowned or unknown desktop thread";
       console.warn(
-        `[phone-codex-bridge] desktop IPC start-turn fallback to app-server: ${
+        `[phone-codex-bridge] desktop IPC start-turn fallback to app-server (${fallbackContext}): ${
           error && error.message ? error.message : String(error)
         }`
       );
