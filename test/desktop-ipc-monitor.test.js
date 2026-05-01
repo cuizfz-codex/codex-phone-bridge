@@ -112,6 +112,35 @@ test("DesktopIpcMonitor treats incomplete requests as active", () => {
   );
 });
 
+test("DesktopIpcMonitor can reconcile stale running state from authoritative thread reads", () => {
+  const monitor = new DesktopIpcMonitor({ enabled: false });
+  const events = [];
+  monitor.on("thread-state-changed", (event) => events.push(event));
+  monitor.threadStateById.set("thread-1", {
+    threadId: "thread-1",
+    ownerClientId: "desktop-client-1",
+    running: true,
+    updatedAt: new Date().toISOString(),
+    conversationState: {
+      turns: [{ id: "turn-1", status: "inProgress", items: [] }],
+      requests: [{ id: "request-1", completed: false }],
+    },
+  });
+
+  assert.equal(
+    monitor.markThreadNotRunning("thread-1", { reason: "thread-read-terminal" }),
+    true
+  );
+
+  const state = monitor.threadStateById.get("thread-1");
+  assert.equal(state.running, false);
+  assert.equal(state.conversationState.turns[0].status, "completed");
+  assert.equal(state.conversationState.requests[0].completed, true);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].running, false);
+  assert.equal(events[0].reason, "thread-read-terminal");
+});
+
 test("DesktopIpcMonitor sends turns to known desktop owner", async () => {
   const monitor = new DesktopIpcMonitor({ enabled: false, sendMode: "prefer" });
   let sent = null;

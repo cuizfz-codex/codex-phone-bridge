@@ -80,6 +80,10 @@ const MEDIA_ROOT =
   process.env.MEDIA_ROOT || path.join(WORKSPACE_ROOT, "data", "media");
 const MEDIA_INDEX =
   process.env.MEDIA_INDEX || path.join(WORKSPACE_ROOT, "data", "media", "index.json");
+const CODEX_GENERATED_IMAGES_ROOT =
+  process.env.CODEX_GENERATED_IMAGES_ROOT ||
+  path.join(os.homedir(), ".codex", "generated_images");
+const MEDIA_IMPORT_ROOTS = parseMediaImportRoots(process.env.MEDIA_IMPORT_ROOTS);
 const THREAD_LIST_POLL_MS = Number(process.env.THREAD_LIST_POLL_MS || 8000);
 const THREAD_READ_POLL_ACTIVE_MS = Number(
   process.env.THREAD_READ_POLL_ACTIVE_MS || 2000
@@ -983,7 +987,7 @@ async function handleV2Api(req, res, url, pathname) {
     const include = includeTurns === null ? true : includeTurns;
     const thread = await threadSync.readThread(threadId, include);
     const decorated = await decorateThreadWithTitle(
-      decorateThreadMedia(thread, mediaService)
+      await decorateThreadMedia(thread, mediaService)
     );
     const usage = await resolveThreadUsageForThread(String(threadId), thread);
     const runDefaults = await resolveThreadRunDefaultsForThread(String(threadId), thread);
@@ -1011,7 +1015,7 @@ async function handleV2Api(req, res, url, pathname) {
   }
 
   const mMedia = pathname.match(/^\/api\/v2\/media\/([^/]+)$/);
-  if (req.method === "GET" && mMedia) {
+  if ((req.method === "GET" || req.method === "HEAD") && mMedia) {
     const mediaId = decodeURIComponent(mMedia[1]);
     const media = mediaService.getById(mediaId);
     if (!media) {
@@ -1032,7 +1036,14 @@ async function handleV2Api(req, res, url, pathname) {
       "Content-Type": media.mimeType || "application/octet-stream",
       "Content-Length": stat.size,
       "Cache-Control": "private, max-age=120",
+      "Content-Disposition": `inline; filename="${sanitizeHeaderFileName(
+        media.fileName || media.storedName || "codex-image"
+      )}"`,
     });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
     fs.createReadStream(absPath).pipe(res);
     return;
   }
@@ -1224,10 +1235,11 @@ function autoResolvePendingApprovals() {
   }
 }
 
-function decorateThreadMedia(thread, mediaSvc) {
+async function decorateThreadMedia(thread, mediaSvc) {
   if (!thread || typeof thread !== "object") return thread;
   const clone = JSON.parse(JSON.stringify(thread));
   if (!Array.isArray(clone.turns)) return clone;
+  const allowedRoots = buildThreadMediaImportRoots(clone);
   for (const turn of clone.turns) {
     if (!turn || !Array.isArray(turn.items)) continue;
     for (const item of turn.items) {
@@ -1235,9 +1247,16 @@ function decorateThreadMedia(thread, mediaSvc) {
       if (item.type === "userMessage" && Array.isArray(item.content)) {
         for (const content of item.content) {
           if (!content || typeof content !== "object") continue;
-          if (content.type === "localImage" && content.path) {
-            const media = mediaSvc.getByAbsolutePath(content.path);
-            if (media) {
+          if (
+            (content.type === "localImage" || content.type === "local_image") &&
+            content.path
+          ) {
+            const media = await resolveThreadImageMedia(mediaSvc, content.path, {
+              threadId: clone.id,
+              turnId: turn.id,
+              allowedRoots,
+            });
+            if (media && media.id) {
               content.mediaId = media.id;
               content.mediaUrl = mediaSvc.getPublicUrl(media.id);
             }
@@ -1245,15 +1264,105 @@ function decorateThreadMedia(thread, mediaSvc) {
         }
       }
       if (item.type === "imageView" && item.path) {
-        const media = mediaSvc.getByAbsolutePath(item.path);
-        if (media) {
+        const media = await resolveThreadImageMedia(mediaSvc, item.path, {
+          threadId: clone.id,
+          turnId: turn.id,
+          allowedRoots,
+        });
+        if (media && media.id) {
           item.mediaId = media.id;
           item.mediaUrl = mediaSvc.getPublicUrl(media.id);
+        }
+      }
+      if (item.type === "imageGeneration") {
+        const imagePath = findImageGenerationPath(item);
+        if (imagePath) {
+          const media = await resolveThreadImageMedia(mediaSvc, imagePath, {
+            threadId: clone.id,
+            turnId: turn.id,
+            allowedRoots,
+          });
+          if (media && media.id) {
+            item.mediaId = media.id;
+            item.mediaUrl = mediaSvc.getPublicUrl(media.id);
+            item.path = imagePath;
+          }
         }
       }
     }
   }
   return clone;
+}
+
+async function resolveThreadImageMedia(mediaSvc, imagePath, info) {
+  const existing = mediaSvc.getByAbsolutePath(imagePath);
+  if (existing) return existing;
+  if (typeof mediaSvc.ensureLocalImage !== "function") return null;
+  try {
+    return await mediaSvc.ensureLocalImage(imagePath, {
+      ...info,
+      allowedRoots: buildAllowedRootsForImage(info.allowedRoots, imagePath),
+    });
+  } catch (error) {
+    console.warn(
+      `[phone-codex-bridge] skipped thread image import path=${String(
+        imagePath || ""
+      )}: ${error && error.message ? error.message : error}`
+    );
+    return null;
+  }
+}
+
+function buildAllowedRootsForImage(baseRoots, imagePath) {
+  const roots = Array.isArray(baseRoots) ? baseRoots.slice() : [];
+  const resolved = path.resolve(String(imagePath || ""));
+  const tmpRoots = [os.tmpdir(), "/tmp", "/private/tmp"];
+  for (const tmpRootRaw of tmpRoots) {
+    const tmpRoot = path.resolve(tmpRootRaw);
+    const relative = path.relative(tmpRoot, resolved);
+    const insideTmp =
+      relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+    if (insideTmp) {
+      const firstSegment = relative.split(path.sep).filter(Boolean)[0] || "";
+      if (/^codex[_-]/i.test(firstSegment)) {
+        roots.push(path.join(tmpRoot, firstSegment));
+      }
+    }
+  }
+  return [...new Set(roots.map((item) => path.resolve(item)))];
+}
+
+function findImageGenerationPath(item) {
+  if (!item || typeof item !== "object") return "";
+  const candidates = [
+    item.savedPath,
+    item.path,
+    item.filePath,
+    item.localPath,
+    item.result && item.result.path,
+    item.result && item.result.savedPath,
+    item.result && item.result.filePath,
+    item.result && item.result.localPath,
+  ];
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function buildThreadMediaImportRoots(thread) {
+  const roots = [
+    MEDIA_ROOT,
+    CODEX_GENERATED_IMAGES_ROOT,
+    path.join(os.homedir(), "Downloads"),
+    ...MEDIA_IMPORT_ROOTS,
+  ];
+  const cwd = String((thread && thread.cwd) || "").trim();
+  if (cwd) roots.push(cwd);
+  const threadPath = String((thread && thread.path) || "").trim();
+  if (threadPath) roots.push(path.dirname(threadPath));
+  return [...new Set(roots.map((item) => path.resolve(item)))];
 }
 
 function parseInteger(value, fallback, min, max) {
@@ -1267,6 +1376,23 @@ function parseOptionalBoolean(value) {
   if (String(value).toLowerCase() === "true") return true;
   if (String(value).toLowerCase() === "false") return false;
   return null;
+}
+
+function parseMediaImportRoots(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  return raw
+    .split(path.delimiter)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function sanitizeHeaderFileName(value) {
+  const clean = String(value || "codex-image")
+    .replace(/["\\\r\n]+/g, "_")
+    .replace(/[^\x20-\x7e]+/g, "_")
+    .trim();
+  return clean || "codex-image";
 }
 
 function parseCsvList(value) {
@@ -1331,16 +1457,35 @@ async function serveStatic(pathname, method, res) {
     type.startsWith("text/css")
       ? "no-store"
       : "private, max-age=120";
+  let body = null;
+  if (method !== "HEAD") {
+    try {
+      body = await fsp.readFile(filePath);
+    } catch (error) {
+      const code = error && error.code ? String(error.code) : "";
+      const statusCode = code === "ENOENT" ? 404 : 500;
+      console.warn(
+        `[phone-codex-bridge] static file read failed ${filePath}${
+          code ? ` code=${code}` : ""
+        }: ${error && error.message ? error.message : String(error)}`
+      );
+      sendJson(res, statusCode, {
+        ok: false,
+        error: statusCode === 404 ? "Not found" : "Static file read failed",
+      });
+      return;
+    }
+  }
   res.writeHead(200, {
     "Content-Type": type,
-    "Content-Length": stat.size,
+    "Content-Length": body ? body.length : stat.size,
     "Cache-Control": cacheControl,
   });
   if (method === "HEAD") {
     res.end();
     return;
   }
-  fs.createReadStream(filePath).pipe(res);
+  res.end(body);
 }
 
 function contentType(filePath) {
@@ -1434,6 +1579,17 @@ function bindEvents() {
       const threadId = payload && payload.threadId ? String(payload.threadId) : "";
       if (threadId) {
         threadSync.triggerImmediateThreadRead(threadId);
+      }
+      if (
+        payload &&
+        payload.running === false &&
+        payload.reason === "thread-read-terminal" &&
+        threadId
+      ) {
+        desktopNudge.request({
+          reason: "desktop-ipc-terminal-reconciled",
+          threadId,
+        });
       }
       scheduleDesktopIpcThreadListRefresh();
       sseHub.broadcast("desktop-ipc-thread-state", {
@@ -1840,14 +1996,18 @@ async function decorateThreadListWithTitles(threads) {
     )
     .filter(Boolean);
   const globalMetadata = await resolveGlobalStateThreadMetadata();
-  const missingForSqlite = ids.filter((id) => !globalMetadata.threadTitleById.has(id));
-  const titleRows = await resolveThreadTitleRows(missingForSqlite);
+  const titleRows = await resolveThreadTitleRows(ids);
   return threads.map((thread) => {
     const id = thread && thread.id ? String(thread.id) : "";
+    const titleRow = titleRows.get(id) || null;
     return applyThreadTitleDecoration(thread, {
       globalTitle: globalMetadata.threadTitleById.get(id) || "",
-      titleRow: titleRows.get(id) || null,
-      workspaceLabel: resolveWorkspaceLabelForThread(thread, globalMetadata),
+      titleRow,
+      workspaceLabel: resolveWorkspaceLabelForDecoratedThread(
+        thread,
+        titleRow,
+        globalMetadata
+      ),
     });
   });
 }
@@ -1903,15 +2063,16 @@ async function decorateThreadWithTitle(thread) {
   if (!thread || typeof thread !== "object" || !thread.id) return thread;
   const threadId = String(thread.id);
   const globalMetadata = await resolveGlobalStateThreadMetadata();
-  let titleRow = null;
-  if (!globalMetadata.threadTitleById.has(threadId)) {
-    const rows = await resolveThreadTitleRows([threadId]);
-    titleRow = rows.get(threadId) || null;
-  }
+  const rows = await resolveThreadTitleRows([threadId]);
+  const titleRow = rows.get(threadId) || null;
   return applyThreadTitleDecoration(thread, {
     globalTitle: globalMetadata.threadTitleById.get(threadId) || "",
     titleRow,
-    workspaceLabel: resolveWorkspaceLabelForThread(thread, globalMetadata),
+    workspaceLabel: resolveWorkspaceLabelForDecoratedThread(
+      thread,
+      titleRow,
+      globalMetadata
+    ),
   });
 }
 
@@ -1923,6 +2084,25 @@ function resolveWorkspaceLabelForThread(thread, metadata) {
   if (existingLabel) return existingLabel;
   const cwdKey = normalizeWorkspacePath(thread.cwd || thread.path);
   if (!cwdKey) return "";
+  const exact = metadata.workspaceLabelByPath.get(cwdKey);
+  if (exact) return exact;
+  return metadata.workspaceLabelByPathLower.get(cwdKey.toLowerCase()) || "";
+}
+
+function resolveWorkspaceLabelForDecoratedThread(thread, titleRow, metadata) {
+  const sqliteCwd = normalizeWorkspacePath(titleRow && titleRow.cwd);
+  if (sqliteCwd) {
+    return (
+      resolveWorkspaceLabelByPath(sqliteCwd, metadata) ||
+      getWorkspaceNameFromPath(sqliteCwd)
+    );
+  }
+  return resolveWorkspaceLabelForThread(thread, metadata);
+}
+
+function resolveWorkspaceLabelByPath(cwd, metadata) {
+  const cwdKey = normalizeWorkspacePath(cwd);
+  if (!cwdKey || !metadata) return "";
   const exact = metadata.workspaceLabelByPath.get(cwdKey);
   if (exact) return exact;
   return metadata.workspaceLabelByPathLower.get(cwdKey.toLowerCase()) || "";
@@ -1943,9 +2123,25 @@ function applyThreadTitleDecoration(thread, metadata = {}) {
       thread.firstUserMessage
   );
   const workspaceLabel = normalizeThreadTitleText(metadata.workspaceLabel);
+  const sqliteCwd = normalizeWorkspacePath(titleRow && titleRow.cwd);
+  const sqliteSource = normalizeThreadTitleText(titleRow && titleRow.source);
+  const sqliteModelProvider = normalizeThreadTitleText(
+    titleRow && (titleRow.modelProvider || titleRow.model_provider)
+  );
+  const sqliteUpdatedAt = normalizePositiveNumber(
+    titleRow && (titleRow.updatedAt || titleRow.updated_at)
+  );
+  const sqliteCreatedAt = normalizePositiveNumber(
+    titleRow && (titleRow.createdAt || titleRow.created_at)
+  );
 
   let changed = false;
   const next = { ...thread };
+
+  if (sqliteCwd && normalizeWorkspacePath(next.cwd) !== sqliteCwd) {
+    next.cwd = sqliteCwd;
+    changed = true;
+  }
 
   if (title) {
     if (normalizeThreadTitleText(next.title) !== title) {
@@ -1960,6 +2156,27 @@ function applyThreadTitleDecoration(thread, metadata = {}) {
       next.name = title;
       changed = true;
     }
+  }
+
+  if (sqliteSource && normalizeThreadTitleText(next.source) !== sqliteSource) {
+    next.source = sqliteSource;
+    changed = true;
+  }
+  if (
+    sqliteModelProvider &&
+    normalizeThreadTitleText(next.modelProvider || next.model_provider) !==
+      sqliteModelProvider
+  ) {
+    next.modelProvider = sqliteModelProvider;
+    changed = true;
+  }
+  if (sqliteUpdatedAt && Number(next.updatedAt || next.updated_at || 0) !== sqliteUpdatedAt) {
+    next.updatedAt = sqliteUpdatedAt;
+    changed = true;
+  }
+  if (sqliteCreatedAt && Number(next.createdAt || next.created_at || 0) !== sqliteCreatedAt) {
+    next.createdAt = sqliteCreatedAt;
+    changed = true;
   }
 
   if (workspaceLabel) {
@@ -1993,6 +2210,18 @@ function normalizeWorkspacePath(value) {
   if (!text) return "";
   const cleaned = text.replace(/[\\/]+$/g, "");
   return cleaned || text;
+}
+
+function getWorkspaceNameFromPath(value) {
+  const clean = normalizeWorkspacePath(value);
+  if (!clean) return "";
+  const parts = clean.split(/[\\/]/).filter(Boolean);
+  return normalizeThreadTitleText(parts.length ? parts[parts.length - 1] : clean);
+}
+
+function normalizePositiveNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 async function resolveGlobalStateThreadMetadata() {
@@ -2125,7 +2354,9 @@ async function queryThreadTitleRowsByIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return [];
   const inClause = ids.map((id) => sqlQuote(id)).join(", ");
   const sql = [
-    "SELECT id, title, first_user_message AS firstUserMessage",
+    "SELECT id, title, first_user_message AS firstUserMessage, cwd, source,",
+    "model_provider AS modelProvider, model, reasoning_effort AS reasoningEffort,",
+    "created_at AS createdAt, updated_at AS updatedAt, archived",
     "FROM threads",
     `WHERE id IN (${inClause});`,
   ].join(" ");
@@ -2616,6 +2847,12 @@ async function bootstrap() {
     mediaRoot: MEDIA_ROOT,
     indexPath: MEDIA_INDEX,
     maxImageBytes: MAX_IMAGE_MB * 1024 * 1024,
+    importRoots: [
+      MEDIA_ROOT,
+      CODEX_GENERATED_IMAGES_ROOT,
+      path.join(os.homedir(), "Downloads"),
+      ...MEDIA_IMPORT_ROOTS,
+    ],
   });
   desktopIpcMonitor = createDesktopIpcMonitorFromEnv(process.env);
   threadSync = new ThreadSyncService({

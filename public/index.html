@@ -51,6 +51,15 @@
             <button id="display-mode-btn" class="btn mini ghost display-mode-btn" type="button">
               简洁显示
             </button>
+            <a
+              id="unlock-thread-btn"
+              class="btn mini ghost unlock-thread-btn hidden"
+              href="/?unlockThread=1"
+              onclick="localStorage.removeItem('codex_v2_locked_thread_id'); window.location.href='/?unlockThread=1'; return false;"
+              data-i18n="btn.unlockThread"
+            >
+              解除单线程锁定
+            </a>
           </div>
         </section>
 
@@ -190,6 +199,19 @@
         </menu>
       </form>
     </dialog>
+
+    <section id="image-viewer" class="image-viewer hidden" aria-hidden="true">
+      <header class="image-viewer-bar">
+        <button id="image-viewer-close" class="btn ghost mini" type="button" data-i18n="image.close">关闭</button>
+        <div class="image-viewer-title" data-i18n="image.viewerTitle">图片预览</div>
+        <div class="image-viewer-actions">
+          <button id="image-viewer-save" class="btn mini" type="button" data-i18n="image.save">保存/分享</button>
+        </div>
+      </header>
+      <div id="image-viewer-stage" class="image-viewer-stage">
+        <img id="image-viewer-img" alt="image preview" />
+      </div>
+    </section>
 
     <script src="/vendor/jsQR.js" defer></script>
     <script src="/app.js" defer></script>

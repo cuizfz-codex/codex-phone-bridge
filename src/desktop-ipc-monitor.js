@@ -108,6 +108,30 @@ class DesktopIpcMonitor extends EventEmitter {
     };
   }
 
+  markThreadNotRunning(threadId, info = {}) {
+    const key = String(threadId || "").trim();
+    if (!key) return false;
+    const entry = this.threadStateById.get(key);
+    if (!entry || entry.running !== true) return false;
+    const updatedAt = new Date().toISOString();
+    const next = {
+      ...entry,
+      conversationState: markConversationStateNotRunning(entry.conversationState),
+      running: false,
+      updatedAt,
+    };
+    this.threadStateById.set(key, next);
+    this.emit("thread-state-changed", {
+      threadId: key,
+      running: false,
+      ownerClientId: next.ownerClientId || null,
+      updatedAt,
+      reason: info && info.reason ? String(info.reason) : "reconciled-terminal-thread",
+    });
+    this.emit("status", this.status());
+    return true;
+  }
+
   getModelSyncCandidates(options = {}) {
     const cwd = normalizeCwd(options.cwd);
     const candidates = [];
@@ -675,6 +699,26 @@ function isRunningStatus(status) {
   return RUNNING_STATUSES.has(normalized);
 }
 
+function markConversationStateNotRunning(state) {
+  if (!state || typeof state !== "object") return state || null;
+  const next = cloneJson(state);
+  if (Array.isArray(next.turns)) {
+    for (const turn of next.turns) {
+      if (turn && isRunningStatus(turn.status)) {
+        turn.status = "completed";
+      }
+    }
+  }
+  if (Array.isArray(next.requests)) {
+    for (const request of next.requests) {
+      if (request && request.completed !== true) {
+        request.completed = true;
+      }
+    }
+  }
+  return next;
+}
+
 function runningDecisionFromPatches(patches) {
   let decision = null;
   for (const patch of patches) {
@@ -798,6 +842,7 @@ module.exports = {
     findLatestTurnParamsTemplate,
     isConversationStateRunning,
     isRunningStatus,
+    markConversationStateNotRunning,
     normalizeReasoningEffort,
     normalizeDesktopIpcSendMode,
     runningDecisionFromPatches,

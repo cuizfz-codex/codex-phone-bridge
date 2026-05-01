@@ -11,11 +11,21 @@ const MIME_TO_EXT = {
   "image/heic": ".heic",
 };
 
+const EXT_TO_MIME = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".heic": "image/heic",
+};
+
 class MediaService {
   constructor(options) {
     this.mediaRoot = path.resolve(options.mediaRoot);
     this.indexPath = path.resolve(options.indexPath);
     this.maxImageBytes = Number(options.maxImageBytes || 12 * 1024 * 1024);
+    this.importRoots = normalizeImportRoots(options.importRoots);
     this._index = {
       version: 1,
       items: [],
@@ -63,6 +73,9 @@ class MediaService {
       if (item.absolutePath) {
         this._byAbsPath.set(path.resolve(item.absolutePath), item);
       }
+      if (item.sourcePath) {
+        this._byAbsPath.set(path.resolve(item.sourcePath), item);
+      }
     }
   }
 
@@ -90,6 +103,7 @@ class MediaService {
   }
 
   getByAbsolutePath(filePath) {
+    if (!filePath) return null;
     return this._byAbsPath.get(path.resolve(filePath)) || null;
   }
 
@@ -111,6 +125,116 @@ class MediaService {
 
   async saveImage(payload) {
     return this._saveFromDataUrl("image", payload, this.maxImageBytes);
+  }
+
+  async ensureLocalImage(filePath, info = {}) {
+    const sourcePath = await this._resolveImportableImagePath(filePath, info);
+    if (!sourcePath) return null;
+
+    const existing = this.getByAbsolutePath(sourcePath);
+    if (existing && fsSync.existsSync(existing.absolutePath)) {
+      let changed = false;
+      if (info.threadId && existing.threadId !== String(info.threadId)) {
+        existing.threadId = String(info.threadId);
+        changed = true;
+      }
+      if (info.turnId && existing.turnId !== String(info.turnId)) {
+        existing.turnId = String(info.turnId);
+        changed = true;
+      }
+      if (changed) {
+        existing.updatedAt = new Date().toISOString();
+        await this._queuePersist();
+      }
+      return existing;
+    }
+
+    const stat = await fs.stat(sourcePath);
+    if (!stat.isFile()) {
+      throw new Error("Local image path is not a file");
+    }
+    if (stat.size <= 0) {
+      throw new Error("Local image is empty");
+    }
+    if (stat.size > this.maxImageBytes) {
+      throw new Error(
+        `Local image too large (${stat.size} bytes), max ${this.maxImageBytes}`
+      );
+    }
+
+    const ext = path.extname(sourcePath).toLowerCase();
+    const mimeType = EXT_TO_MIME[ext];
+    if (!mimeType) {
+      throw new Error("Unsupported local image type");
+    }
+
+    const mediaId = crypto.randomUUID();
+    const now = new Date();
+    const y = String(now.getUTCFullYear());
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
+
+    const dir = path.join(this.mediaRoot, "imported", y, m, d);
+    await fs.mkdir(dir, { recursive: true });
+
+    const storedName = `${mediaId}${ext === ".jpeg" ? ".jpg" : ext}`;
+    const absolutePath = path.join(dir, storedName);
+    await fs.copyFile(sourcePath, absolutePath);
+
+    const item = {
+      id: mediaId,
+      kind: "imported",
+      mimeType,
+      size: stat.size,
+      fileName: this._sanitizeFileName(path.basename(sourcePath) || storedName),
+      storedName,
+      absolutePath,
+      sourcePath,
+      relativePath: path.relative(this.mediaRoot, absolutePath),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      threadId: info.threadId ? String(info.threadId) : null,
+      turnId: info.turnId ? String(info.turnId) : null,
+      metadata: {
+        importedFrom: "local-thread-image",
+      },
+    };
+
+    this._index.items.push(item);
+    this._byId.set(item.id, item);
+    this._byAbsPath.set(path.resolve(item.absolutePath), item);
+    this._byAbsPath.set(path.resolve(item.sourcePath), item);
+    await this._queuePersist();
+
+    return item;
+  }
+
+  async _resolveImportableImagePath(filePath, info = {}) {
+    const raw = String(filePath || "").trim();
+    if (!raw) return null;
+    const resolved = path.resolve(raw);
+    const sourcePath = await fs.realpath(resolved);
+    const roots = [
+      ...this.importRoots,
+      ...normalizeImportRoots(info.allowedRoots),
+    ];
+    const allowedRoots = [];
+    for (const root of roots) {
+      try {
+        allowedRoots.push(await fs.realpath(root));
+      } catch (_error) {
+        allowedRoots.push(path.resolve(root));
+      }
+    }
+    const allowed = allowedRoots.some((root) => isPathInside(root, sourcePath));
+    if (!allowed) {
+      throw new Error("Local image path is outside allowed import roots");
+    }
+    const ext = path.extname(sourcePath).toLowerCase();
+    if (!EXT_TO_MIME[ext]) {
+      throw new Error("Unsupported local image type");
+    }
+    return sourcePath;
   }
 
   async _saveFromDataUrl(kind, payload, sizeLimit) {
@@ -223,6 +347,27 @@ class MediaService {
       .replace(/[^a-zA-Z0-9._-]+/g, "_")
       .slice(0, 120);
   }
+}
+
+function normalizeImportRoots(input) {
+  const values = Array.isArray(input) ? input : [];
+  const roots = [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    roots.push(path.resolve(clean));
+  }
+  return [...new Set(roots)];
+}
+
+function isPathInside(root, target) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  return (
+    relative === "" ||
+    (relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 module.exports = {

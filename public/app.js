@@ -42,6 +42,7 @@ const elements = {
   archivedToggle: document.querySelector("#archived-toggle"),
   desktopCompatibleToggle: document.querySelector("#desktop-compatible-toggle"),
   displayModeBtn: document.querySelector("#display-mode-btn"),
+  unlockThreadBtn: document.querySelector("#unlock-thread-btn"),
   refreshThreadsBtn: document.querySelector("#refresh-threads-btn"),
   newThreadBtn: document.querySelector("#new-thread-btn"),
   threadTitle: document.querySelector("#thread-title"),
@@ -81,6 +82,11 @@ const elements = {
   imagePicker: document.querySelector("#image-picker"),
   pickImageBtn: document.querySelector("#pick-image-btn"),
   pendingImages: document.querySelector("#pending-images"),
+  imageViewer: document.querySelector("#image-viewer"),
+  imageViewerStage: document.querySelector("#image-viewer-stage"),
+  imageViewerImg: document.querySelector("#image-viewer-img"),
+  imageViewerClose: document.querySelector("#image-viewer-close"),
+  imageViewerSave: document.querySelector("#image-viewer-save"),
 };
 
 const storageKeys = {
@@ -303,6 +309,11 @@ const I18N = {
     "item.commandSummary": "命令 · {status}",
     "item.fileChangeSummary": "文件变更 · {status}",
     "item.noImage": "无法显示图片: {alt}",
+    "image.openPreview": "点按查看大图",
+    "image.viewerTitle": "图片预览",
+    "image.close": "关闭",
+    "image.save": "保存/分享",
+    "image.saveFailed": "保存图片失败: {error}",
     "item.liveTitle": "助手（实时输出）",
     "item.reasoning": "推理",
     "item.plan": "计划",
@@ -505,6 +516,11 @@ const I18N = {
     "item.commandSummary": "Command · {status}",
     "item.fileChangeSummary": "File Change · {status}",
     "item.noImage": "Cannot display image: {alt}",
+    "image.openPreview": "Tap to preview",
+    "image.viewerTitle": "Image Preview",
+    "image.close": "Close",
+    "image.save": "Save / Share",
+    "image.saveFailed": "Save image failed: {error}",
     "item.liveTitle": "Assistant (live output)",
     "item.reasoning": "Reasoning",
     "item.plan": "Plan",
@@ -626,6 +642,31 @@ const state = {
     longPressTriggered: false,
     suppressClickUntil: 0,
     nativeContextBlockedUntil: 0,
+  },
+  imageViewer: {
+    open: false,
+    src: "",
+    alt: "",
+    scale: 1,
+    fitScale: 1,
+    naturalWidth: 0,
+    naturalHeight: 0,
+    fitWidth: 0,
+    fitHeight: 0,
+    x: 0,
+    y: 0,
+    pointers: new Map(),
+    startX: 0,
+    startY: 0,
+    startDistance: 0,
+    startMidX: 0,
+    startMidY: 0,
+    baseScale: 1,
+    baseX: 0,
+    baseY: 0,
+    moved: false,
+    lastTapAt: 0,
+    startedOnBackdrop: false,
   },
 };
 
@@ -1759,6 +1800,7 @@ function bindEvents() {
     elements.chat.addEventListener("pointerdown", () => {
       collapseReadingChromeMobile();
     });
+    elements.chat.addEventListener("click", handleChatImageClick);
   }
   if (elements.input) {
     const markTyping = () => {
@@ -1919,6 +1961,7 @@ function bindEvents() {
     if (target instanceof Element && target.closest("#composer-toggle")) return;
     expandComposerMobile();
   });
+  bindImageViewerEvents();
 }
 
 function applyQueryBootstrap() {
@@ -2090,6 +2133,13 @@ function setAdvancedFiltersOpen(open, options = {}) {
 function applyLockedThreadUi() {
   const locked = Boolean(state.lockedThreadId);
   elements.newThreadBtn.disabled = locked;
+  if (elements.unlockThreadBtn) {
+    elements.unlockThreadBtn.classList.toggle("hidden", !locked);
+    elements.unlockThreadBtn.setAttribute("aria-hidden", locked ? "false" : "true");
+    if ("disabled" in elements.unlockThreadBtn) {
+      elements.unlockThreadBtn.disabled = !locked;
+    }
+  }
   if (elements.sourceFilter) elements.sourceFilter.disabled = locked;
   if (elements.archivedToggle) elements.archivedToggle.disabled = locked;
   if (elements.desktopCompatibleToggle) {
@@ -3716,7 +3766,7 @@ function renderThreadItem(item) {
         box.append(p);
       } else if (c.type === "image") {
         box.append(renderImage(c.url, "image"));
-      } else if (c.type === "localImage") {
+      } else if (c.type === "localImage" || c.type === "local_image") {
         box.append(renderImage(c.mediaUrl || "", c.path || "local image"));
       }
     }
@@ -3784,14 +3834,19 @@ function renderThreadItem(item) {
     return details;
   }
 
-  if (item.type === "imageView") {
+  if (item.type === "imageView" || item.type === "imageGeneration") {
     const box = document.createElement("article");
     box.className = "item msg assistant";
     const role = document.createElement("div");
     role.className = "msg-role";
     role.textContent = "Codex";
     box.append(role);
-    box.append(renderImage(item.mediaUrl || "", item.path || "image view"));
+    box.append(
+      renderImage(
+        item.mediaUrl || "",
+        item.path || item.savedPath || "image view"
+      )
+    );
     return box;
   }
 
@@ -3816,12 +3871,371 @@ function renderImage(src, alt) {
     return wrap;
   }
   const img = document.createElement("img");
-  img.loading = "eager";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "image-thumb";
+  button.dataset.imageSrc = src;
+  button.dataset.imageAlt = alt || "image";
+  button.setAttribute("aria-label", t("image.openPreview"));
+  img.loading = "lazy";
   img.decoding = "async";
   img.src = src;
   img.alt = alt || "image";
-  wrap.append(img);
+  button.append(img);
+  wrap.append(button);
   return wrap;
+}
+
+function handleChatImageClick(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const thumb = target.closest(".image-thumb");
+  if (!(thumb instanceof HTMLElement)) return;
+  const src = thumb.dataset.imageSrc || "";
+  if (!src) return;
+  event.preventDefault();
+  openImageViewer(src, thumb.dataset.imageAlt || "image");
+}
+
+function bindImageViewerEvents() {
+  if (!elements.imageViewer || !elements.imageViewerStage) return;
+  elements.imageViewerClose.addEventListener("click", closeImageViewer);
+  elements.imageViewerSave.addEventListener("click", () => {
+    saveImageFromViewer().catch((error) => {
+      if (error && error.name === "AbortError") return;
+      setStatusKey("image.saveFailed", { error: asMessage(error) });
+    });
+  });
+  elements.imageViewer.addEventListener("click", (event) => {
+    if (event.target === elements.imageViewer) closeImageViewer();
+  });
+  elements.imageViewerStage.addEventListener("pointerdown", handleImageViewerPointerDown);
+  elements.imageViewerStage.addEventListener("pointermove", handleImageViewerPointerMove);
+  elements.imageViewerStage.addEventListener("pointerup", handleImageViewerPointerEnd);
+  elements.imageViewerStage.addEventListener("pointercancel", handleImageViewerPointerEnd);
+  if (elements.imageViewerImg) {
+    elements.imageViewerImg.addEventListener("load", prepareImageViewerImage);
+  }
+  elements.imageViewerStage.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    toggleImageViewerZoom(event.clientX, event.clientY);
+  });
+  elements.imageViewerStage.addEventListener(
+    "wheel",
+    (event) => {
+      if (!state.imageViewer.open) return;
+      event.preventDefault();
+      const factor = event.deltaY < 0 ? 1.12 : 0.88;
+      zoomImageViewerAt(event.clientX, event.clientY, state.imageViewer.scale * factor);
+    },
+    { passive: false }
+  );
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.imageViewer.open) {
+      closeImageViewer();
+    }
+  });
+  window.addEventListener("resize", refitImageViewer);
+}
+
+function openImageViewer(src, alt) {
+  if (!elements.imageViewer || !elements.imageViewerImg) return;
+  state.imageViewer.open = true;
+  state.imageViewer.src = src;
+  state.imageViewer.alt = alt || "image";
+  state.imageViewer.scale = 1;
+  state.imageViewer.fitScale = 1;
+  state.imageViewer.naturalWidth = 0;
+  state.imageViewer.naturalHeight = 0;
+  state.imageViewer.fitWidth = 0;
+  state.imageViewer.fitHeight = 0;
+  state.imageViewer.x = 0;
+  state.imageViewer.y = 0;
+  state.imageViewer.pointers.clear();
+  state.imageViewer.moved = false;
+  state.imageViewer.startedOnBackdrop = false;
+  elements.imageViewerImg.style.width = "";
+  elements.imageViewerImg.style.height = "";
+  elements.imageViewerImg.src = src;
+  elements.imageViewerImg.alt = state.imageViewer.alt;
+  elements.imageViewer.classList.remove("hidden");
+  elements.imageViewer.setAttribute("aria-hidden", "false");
+  document.body.classList.add("image-viewer-open");
+  applyImageViewerTransform();
+  requestAnimationFrame(() => {
+    if (elements.imageViewerImg && elements.imageViewerImg.complete) {
+      prepareImageViewerImage();
+    }
+  });
+}
+
+function closeImageViewer() {
+  if (!elements.imageViewer || !state.imageViewer.open) return;
+  state.imageViewer.open = false;
+  state.imageViewer.pointers.clear();
+  elements.imageViewer.classList.add("hidden");
+  elements.imageViewer.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("image-viewer-open");
+  if (elements.imageViewerImg) {
+    elements.imageViewerImg.removeAttribute("src");
+    elements.imageViewerImg.style.width = "";
+    elements.imageViewerImg.style.height = "";
+  }
+}
+
+function prepareImageViewerImage() {
+  if (!state.imageViewer.open || !elements.imageViewerImg) return;
+  const width = elements.imageViewerImg.naturalWidth;
+  const height = elements.imageViewerImg.naturalHeight;
+  if (!width || !height) return;
+  state.imageViewer.naturalWidth = width;
+  state.imageViewer.naturalHeight = height;
+  state.imageViewer.fitScale = getImageViewerFitScale(width, height);
+  state.imageViewer.fitWidth = Math.max(1, Math.floor(width * state.imageViewer.fitScale));
+  state.imageViewer.fitHeight = Math.max(1, Math.floor(height * state.imageViewer.fitScale));
+  elements.imageViewerImg.style.width = `${state.imageViewer.fitWidth}px`;
+  elements.imageViewerImg.style.height = `${state.imageViewer.fitHeight}px`;
+  state.imageViewer.scale = 1;
+  state.imageViewer.x = 0;
+  state.imageViewer.y = 0;
+  applyImageViewerTransform();
+}
+
+function refitImageViewer() {
+  if (!state.imageViewer.open || !state.imageViewer.naturalWidth) return;
+  const previousFit = state.imageViewer.fitScale || 1;
+  const currentVisualScale = previousFit * (state.imageViewer.scale || 1);
+  state.imageViewer.fitScale = getImageViewerFitScale(
+    state.imageViewer.naturalWidth,
+    state.imageViewer.naturalHeight
+  );
+  state.imageViewer.fitWidth = Math.max(
+    1,
+    Math.floor(state.imageViewer.naturalWidth * state.imageViewer.fitScale)
+  );
+  state.imageViewer.fitHeight = Math.max(
+    1,
+    Math.floor(state.imageViewer.naturalHeight * state.imageViewer.fitScale)
+  );
+  if (elements.imageViewerImg) {
+    elements.imageViewerImg.style.width = `${state.imageViewer.fitWidth}px`;
+    elements.imageViewerImg.style.height = `${state.imageViewer.fitHeight}px`;
+  }
+  state.imageViewer.scale = clampImageScale(
+    currentVisualScale / (state.imageViewer.fitScale || 1)
+  );
+  applyImageViewerTransform();
+}
+
+function getImageViewerFitScale(width, height) {
+  if (!elements.imageViewerStage) return 1;
+  const rect = elements.imageViewerStage.getBoundingClientRect();
+  const availableWidth = Math.max(1, rect.width - 20);
+  const availableHeight = Math.max(1, rect.height - 20);
+  return Math.min(1, availableWidth / width, availableHeight / height);
+}
+
+function handleImageViewerPointerDown(event) {
+  if (!state.imageViewer.open) return;
+  event.preventDefault();
+  elements.imageViewerStage.setPointerCapture(event.pointerId);
+  state.imageViewer.pointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+  });
+  state.imageViewer.moved = false;
+  state.imageViewer.startedOnBackdrop = event.target === elements.imageViewerStage;
+  if (state.imageViewer.pointers.size === 1) {
+    state.imageViewer.startX = event.clientX - state.imageViewer.x;
+    state.imageViewer.startY = event.clientY - state.imageViewer.y;
+  } else if (state.imageViewer.pointers.size === 2) {
+    const gesture = getImageViewerGesture();
+    state.imageViewer.startDistance = gesture.distance;
+    state.imageViewer.startMidX = gesture.midX;
+    state.imageViewer.startMidY = gesture.midY;
+    state.imageViewer.baseScale = state.imageViewer.scale;
+    state.imageViewer.baseX = state.imageViewer.x;
+    state.imageViewer.baseY = state.imageViewer.y;
+  }
+}
+
+function handleImageViewerPointerMove(event) {
+  if (!state.imageViewer.open || !state.imageViewer.pointers.has(event.pointerId)) {
+    return;
+  }
+  event.preventDefault();
+  const prev = state.imageViewer.pointers.get(event.pointerId);
+  if (
+    prev &&
+    (Math.abs(prev.x - event.clientX) > 2 || Math.abs(prev.y - event.clientY) > 2)
+  ) {
+    state.imageViewer.moved = true;
+  }
+  state.imageViewer.pointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+  });
+  if (state.imageViewer.pointers.size >= 2) {
+    const gesture = getImageViewerGesture();
+    const baseDistance = Math.max(1, state.imageViewer.startDistance || gesture.distance);
+    state.imageViewer.scale = clampImageScale(
+      state.imageViewer.baseScale * (gesture.distance / baseDistance)
+    );
+    state.imageViewer.x = state.imageViewer.baseX + gesture.midX - state.imageViewer.startMidX;
+    state.imageViewer.y = state.imageViewer.baseY + gesture.midY - state.imageViewer.startMidY;
+  } else if (state.imageViewer.scale > 1) {
+    state.imageViewer.x = event.clientX - state.imageViewer.startX;
+    state.imageViewer.y = event.clientY - state.imageViewer.startY;
+  }
+  applyImageViewerTransform();
+}
+
+function handleImageViewerPointerEnd(event) {
+  if (!state.imageViewer.open) return;
+  state.imageViewer.pointers.delete(event.pointerId);
+  try {
+    elements.imageViewerStage.releasePointerCapture(event.pointerId);
+  } catch (_error) {
+    // noop
+  }
+  if (state.imageViewer.pointers.size === 1) {
+    const pointer = [...state.imageViewer.pointers.values()][0];
+    state.imageViewer.startX = pointer.x - state.imageViewer.x;
+    state.imageViewer.startY = pointer.y - state.imageViewer.y;
+  }
+  if (!state.imageViewer.moved && state.imageViewer.startedOnBackdrop) {
+    closeImageViewer();
+    return;
+  }
+  if (!state.imageViewer.moved) {
+    const now = Date.now();
+    if (now - state.imageViewer.lastTapAt < 280) {
+      toggleImageViewerZoom(event.clientX, event.clientY);
+      state.imageViewer.lastTapAt = 0;
+    } else {
+      state.imageViewer.lastTapAt = now;
+    }
+  }
+}
+
+function getImageViewerGesture() {
+  const points = [...state.imageViewer.pointers.values()];
+  const first = points[0] || { x: 0, y: 0 };
+  const second = points[1] || first;
+  return {
+    distance: Math.hypot(second.x - first.x, second.y - first.y),
+    midX: (first.x + second.x) / 2,
+    midY: (first.y + second.y) / 2,
+  };
+}
+
+function toggleImageViewerZoom(clientX, clientY) {
+  const nextScale =
+    state.imageViewer.scale > 1.25
+      ? 1
+      : Math.max(1.8, getImageViewerOriginalScale());
+  zoomImageViewerAt(clientX, clientY, nextScale);
+}
+
+function zoomImageViewerAt(clientX, clientY, nextScale) {
+  const current = state.imageViewer.scale || 1;
+  const target = clampImageScale(nextScale);
+  if (target === 1) {
+    state.imageViewer.scale = 1;
+    state.imageViewer.x = 0;
+    state.imageViewer.y = 0;
+    applyImageViewerTransform();
+    return;
+  }
+  const rect = elements.imageViewerStage.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const focalX = clientX || centerX;
+  const focalY = clientY || centerY;
+  const ratio = target / current;
+  state.imageViewer.x = (state.imageViewer.x - (focalX - centerX)) * ratio + (focalX - centerX);
+  state.imageViewer.y = (state.imageViewer.y - (focalY - centerY)) * ratio + (focalY - centerY);
+  state.imageViewer.scale = target;
+  applyImageViewerTransform();
+}
+
+function applyImageViewerTransform() {
+  if (!elements.imageViewerImg) return;
+  elements.imageViewerImg.style.transform = `translate3d(${state.imageViewer.x}px, ${state.imageViewer.y}px, 0) scale(${state.imageViewer.scale || 1})`;
+}
+
+function clampImageScale(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(getImageViewerMaxScale(), n));
+}
+
+function getImageViewerOriginalScale() {
+  const fitScale = state.imageViewer.fitScale || 1;
+  if (!Number.isFinite(fitScale) || fitScale <= 0) return 1;
+  return 1 / fitScale;
+}
+
+function getImageViewerMaxScale() {
+  return Math.max(6, Math.min(24, getImageViewerOriginalScale()));
+}
+
+async function saveImageFromViewer() {
+  const src = state.imageViewer.src;
+  if (!src) return;
+  const response = await fetch(src, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  const fileName = guessImageFileName(src, blob.type);
+  if (navigator.share && window.File) {
+    const file = new File([blob], fileName, {
+      type: blob.type || "image/png",
+    });
+    if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: state.imageViewer.alt || "Codex image",
+      });
+      return;
+    }
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = fileName;
+    link.target = "_blank";
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+  }
+}
+
+function guessImageFileName(src, mimeType) {
+  const extFromMime =
+    mimeType === "image/jpeg"
+      ? ".jpg"
+      : mimeType === "image/webp"
+      ? ".webp"
+      : mimeType === "image/gif"
+      ? ".gif"
+      : ".png";
+  try {
+    const url = new URL(src, window.location.origin);
+    const last = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+    if (/\.(png|jpg|jpeg|webp|gif|heic)$/i.test(last)) {
+      return last;
+    }
+    if (last) return `${last}${extFromMime}`;
+  } catch (_error) {
+    // fall through
+  }
+  return `codex-image${extFromMime}`;
 }
 
 function renderLiveDeltas(options = {}) {
@@ -4583,7 +4997,8 @@ function isWebVisibleThreadItem(item) {
   return (
     item.type === "userMessage" ||
     item.type === "agentMessage" ||
-    item.type === "imageView"
+    item.type === "imageView" ||
+    (item.type === "imageGeneration" && Boolean(item.mediaUrl))
   );
 }
 

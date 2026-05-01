@@ -50,6 +50,10 @@ class ThreadSyncService extends EventEmitter {
       threadIds: new Set(),
     };
     this.desktopIpcMonitor = options.desktopIpcMonitor || null;
+    this.terminalRuntimeSuppressionTtlMs = Number(
+      options.terminalRuntimeSuppressionTtlMs || 5 * 60 * 1000
+    );
+    this.terminalRuntimeSuppressions = new Map();
   }
 
   start() {
@@ -298,8 +302,34 @@ class ThreadSyncService extends EventEmitter {
   _decorateThreadRuntimeState(thread, desktopRunningThreadIds = new Set()) {
     if (!thread || !thread.id) return thread;
     const entry = this.watchedThreads.get(String(thread.id));
+    if (hasInProgressTurn(thread)) {
+      this._clearTerminalRuntimeSuppression(thread.id);
+      return {
+        ...thread,
+        inProgress: true,
+        running: true,
+      };
+    }
+    if (hasAuthoritativeTerminalTurns(thread)) {
+      if (entry) {
+        entry.inProgress = false;
+      }
+      this._suppressTerminalRuntime(thread.id);
+      this._markDesktopIpcThreadNotRunning(thread.id);
+      return {
+        ...thread,
+        inProgress: false,
+        running: false,
+      };
+    }
+    if (this._isTerminalRuntimeSuppressed(thread.id)) {
+      return {
+        ...thread,
+        inProgress: false,
+        running: false,
+      };
+    }
     const isRunning =
-      hasInProgressTurn(thread) ||
       (entry && entry.inProgress) ||
       desktopRunningThreadIds.has(String(thread.id));
     if (!isRunning) return thread;
@@ -336,6 +366,48 @@ class ThreadSyncService extends EventEmitter {
       };
       return ipcThreadIds;
     }
+  }
+
+  _markDesktopIpcThreadNotRunning(threadId) {
+    if (
+      !this.desktopIpcMonitor ||
+      typeof this.desktopIpcMonitor.markThreadNotRunning !== "function"
+    ) {
+      return false;
+    }
+    try {
+      return this.desktopIpcMonitor.markThreadNotRunning(threadId, {
+        reason: "thread-read-terminal",
+      });
+    } catch (error) {
+      this.emit("error", error);
+      return false;
+    }
+  }
+
+  _suppressTerminalRuntime(threadId) {
+    const key = String(threadId || "").trim();
+    if (!key) return;
+    this.terminalRuntimeSuppressions.set(key, Date.now());
+  }
+
+  _clearTerminalRuntimeSuppression(threadId) {
+    const key = String(threadId || "").trim();
+    if (!key) return;
+    this.terminalRuntimeSuppressions.delete(key);
+  }
+
+  _isTerminalRuntimeSuppressed(threadId) {
+    const key = String(threadId || "").trim();
+    if (!key) return false;
+    const since = this.terminalRuntimeSuppressions.get(key);
+    if (!since) return false;
+    const ttl = Math.max(0, this.terminalRuntimeSuppressionTtlMs);
+    if (ttl > 0 && Date.now() - since > ttl) {
+      this.terminalRuntimeSuppressions.delete(key);
+      return false;
+    }
+    return true;
   }
 
   _getDesktopIpcRunningThreadIds() {
@@ -391,6 +463,7 @@ class ThreadSyncService extends EventEmitter {
 
   async startTurn(threadId, input, overrides = {}) {
     const threadKey = String(threadId);
+    this._clearTerminalRuntimeSuppression(threadKey);
     const payload = compactObject({
       threadId: threadKey,
       input,
@@ -524,6 +597,9 @@ class ThreadSyncService extends EventEmitter {
     const method = notification.method;
     const params = notification.params || {};
     const threadId = params.threadId || (params.thread && params.thread.id) || null;
+    if (method === "turn/started" && threadId) {
+      this._clearTerminalRuntimeSuppression(threadId);
+    }
 
     if (
       method === "thread/started" ||
@@ -632,6 +708,15 @@ function matchesThreadQuery(thread, query) {
 function hasInProgressTurn(thread) {
   if (!thread || !Array.isArray(thread.turns)) return false;
   return thread.turns.some((turn) => turn && isRunningStatus(turn.status));
+}
+
+function hasAuthoritativeTerminalTurns(thread) {
+  if (!thread || !Array.isArray(thread.turns) || thread.turns.length === 0) {
+    return false;
+  }
+  if (hasInProgressTurn(thread)) return false;
+  const lastTurn = [...thread.turns].reverse().find((turn) => turn && turn.status);
+  return Boolean(lastTurn && isTerminalStatus(lastTurn.status));
 }
 
 async function scanDesktopRuntimeThreadIds() {
@@ -794,6 +879,20 @@ function isRunningStatus(value) {
   );
 }
 
+function isTerminalStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "");
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "interrupted" ||
+    status === "canceled" ||
+    status === "cancelled"
+  );
+}
+
 function threadSignature(thread) {
   if (!thread) return "";
   const turns = Array.isArray(thread.turns) ? thread.turns : [];
@@ -855,7 +954,9 @@ module.exports = {
   ALL_SOURCE_KINDS,
   _test: {
     classifyRuntimeRecord,
+    hasAuthoritativeTerminalTurns,
     isRuntimeSessionTailActive,
+    isTerminalStatus,
     parseCodexAppServerPids,
     parseRuntimeSessionFilesFromLsof,
     parseThreadIdFromSessionPath,

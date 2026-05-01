@@ -54,6 +54,103 @@ test("ThreadSyncService decorates list items with desktop IPC running state", as
   assert.equal(result.data[0].inProgress, true);
 });
 
+test("ThreadSyncService lets authoritative terminal turns clear stale desktop running state", async () => {
+  const rpc = {
+    async request(method) {
+      assert.equal(method, "thread/read");
+      return {
+        thread: {
+          id: "thread-1",
+          turns: [{ id: "turn-1", status: "completed", items: [] }],
+        },
+      };
+    },
+  };
+  let markedThreadId = null;
+  const desktopIpcMonitor = {
+    getRunningThreadIds() {
+      return new Set(["thread-1"]);
+    },
+    markThreadNotRunning(threadId) {
+      markedThreadId = threadId;
+      return true;
+    },
+  };
+  const service = new ThreadSyncService({
+    rpc,
+    desktopRuntimeScan: false,
+    desktopIpcMonitor,
+  });
+
+  const thread = await service.readThread("thread-1", true);
+  assert.equal(thread.running, false);
+  assert.equal(thread.inProgress, false);
+  assert.equal(markedThreadId, "thread-1");
+});
+
+test("ThreadSyncService suppresses stale runtime scan after terminal read until next turn starts", async () => {
+  const rpc = {
+    async request(method, params) {
+      if (method === "thread/read") {
+        return {
+          thread: {
+            id: "thread-1",
+            turns: [{ id: "turn-1", status: "completed", items: [] }],
+          },
+        };
+      }
+      if (method === "thread/list") {
+        assert.equal(params.useStateDbOnly, true);
+        return { data: [{ id: "thread-1" }], nextCursor: null };
+      }
+      throw new Error(`unexpected method ${method}`);
+    },
+  };
+  const service = new ThreadSyncService({
+    rpc,
+    desktopRuntimeScan: false,
+    desktopIpcMonitor: {
+      getRunningThreadIds() {
+        return new Set(["thread-1"]);
+      },
+      markThreadNotRunning() {
+        return true;
+      },
+    },
+  });
+
+  await service.readThread("thread-1", true);
+  let list = await service.listThreads({ limit: 20, archived: false });
+  assert.equal(list.data[0].running, false);
+  assert.equal(list.data[0].inProgress, false);
+
+  service.handleRpcNotification({
+    method: "turn/started",
+    params: { threadId: "thread-1" },
+  });
+  list = await service.listThreads({ limit: 20, archived: false });
+  assert.equal(list.data[0].running, true);
+  assert.equal(list.data[0].inProgress, true);
+});
+
+test("thread terminal helper requires turn data and terminal last status", () => {
+  assert.equal(_test.hasAuthoritativeTerminalTurns({ id: "t", turns: [] }), false);
+  assert.equal(
+    _test.hasAuthoritativeTerminalTurns({
+      id: "t",
+      turns: [{ id: "turn-1", status: "inProgress" }],
+    }),
+    false
+  );
+  assert.equal(
+    _test.hasAuthoritativeTerminalTurns({
+      id: "t",
+      turns: [{ id: "turn-1", status: "interrupted" }],
+    }),
+    true
+  );
+});
+
 test("runtime session tail distinguishes active turns from completed turns", () => {
   const active = [
     JSON.stringify({
