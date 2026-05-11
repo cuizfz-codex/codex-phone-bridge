@@ -147,6 +147,7 @@ let webTurnsCleanupTimer = null;
 let desktopIpcRefreshTimer = null;
 let httpRedirectServer = null;
 let localHttpPreviewServer = null;
+let rateLimitsSnapshot = null;
 
 const threadUsageById = new Map();
 const threadUsageFileCache = new Map();
@@ -826,8 +827,28 @@ async function handleV2Api(req, res, url, pathname) {
   }
 
   if (req.method === "GET" && pathname === "/api/v2/rate-limits") {
-    const result = await rpc.request("account/rateLimits/read", {});
-    const normalized = normalizeRateLimitsResponse(result || {});
+    let normalized = null;
+    try {
+      const result = await rpc.request("account/rateLimits/read", {});
+      const fresh = normalizeRateLimitsResponse(result || {});
+      normalized = hasRateLimitsData(fresh)
+        ? rememberRateLimitsSnapshot(fresh)
+        : getRateLimitsSnapshotPayload() || {
+            ...cloneRateLimitsPayload(fresh),
+            stale: false,
+            cachedAt: null,
+          };
+    } catch (error) {
+      const fallback = getRateLimitsSnapshotPayload();
+      if (!fallback) {
+        throw error;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        ...fallback,
+      });
+      return;
+    }
     sendJson(res, 200, {
       ok: true,
       ...normalized,
@@ -1244,6 +1265,17 @@ async function decorateThreadMedia(thread, mediaSvc) {
     if (!turn || !Array.isArray(turn.items)) continue;
     for (const item of turn.items) {
       if (!item || typeof item !== "object") continue;
+      if (
+        (item.type === "agentMessage" || item.type === "userMessage") &&
+        typeof item.text === "string" &&
+        item.text.includes("![")
+      ) {
+        item.text = await rewriteMarkdownLocalImageRefs(item.text, mediaSvc, {
+          threadId: clone.id,
+          turnId: turn.id,
+          allowedRoots,
+        });
+      }
       if (item.type === "userMessage" && Array.isArray(item.content)) {
         for (const content of item.content) {
           if (!content || typeof content !== "object") continue;
@@ -1294,6 +1326,37 @@ async function decorateThreadMedia(thread, mediaSvc) {
   return clone;
 }
 
+async function rewriteMarkdownLocalImageRefs(text, mediaSvc, info) {
+  const source = String(text || "");
+  if (!source || !source.includes("![")) return source;
+  const matches = [...source.matchAll(/!\[([^\]\n]*)\]\(([^)\n]+)\)/g)];
+  if (matches.length === 0) return source;
+  let output = "";
+  let lastIndex = 0;
+  for (const match of matches) {
+    const full = match[0];
+    const alt = match[1] || "";
+    const rawTarget = match[2] || "";
+    const start = Number(match.index) || 0;
+    output += source.slice(lastIndex, start);
+    const imagePath = normalizeMarkdownLocalImagePath(rawTarget);
+    if (!imagePath) {
+      output += full;
+      lastIndex = start + full.length;
+      continue;
+    }
+    const media = await resolveThreadImageMedia(mediaSvc, imagePath, info);
+    if (media && media.id) {
+      output += `![${alt}](${mediaSvc.getPublicUrl(media.id)})`;
+    } else {
+      output += full;
+    }
+    lastIndex = start + full.length;
+  }
+  output += source.slice(lastIndex);
+  return output;
+}
+
 async function resolveThreadImageMedia(mediaSvc, imagePath, info) {
   const existing = mediaSvc.getByAbsolutePath(imagePath);
   if (existing) return existing;
@@ -1311,6 +1374,26 @@ async function resolveThreadImageMedia(mediaSvc, imagePath, info) {
     );
     return null;
   }
+}
+
+function normalizeMarkdownLocalImagePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const unwrapped =
+    raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1).trim() : raw;
+  if (!unwrapped) return "";
+  if (/^https?:\/\//i.test(unwrapped) || /^data:/i.test(unwrapped)) {
+    return "";
+  }
+  if (/^file:\/\//i.test(unwrapped)) {
+    try {
+      const url = new URL(unwrapped);
+      return decodeURIComponent(url.pathname || "");
+    } catch (_error) {
+      return "";
+    }
+  }
+  return path.isAbsolute(unwrapped) ? unwrapped : "";
 }
 
 function buildAllowedRootsForImage(baseRoots, imagePath) {
@@ -2883,6 +2966,52 @@ function normalizeRateLimitsResponse(input) {
   };
 }
 
+function cloneRateLimitsPayload(input) {
+  const normalized = normalizeRateLimitsResponse(input || {});
+  return {
+    rateLimits: normalized.rateLimits,
+    rateLimitsByLimitId: { ...normalized.rateLimitsByLimitId },
+  };
+}
+
+function hasRateLimitsData(input) {
+  if (!input || typeof input !== "object") return false;
+  if (input.rateLimits) return true;
+  return Object.keys(input.rateLimitsByLimitId || {}).length > 0;
+}
+
+function rememberRateLimitsSnapshot(input) {
+  const payload = cloneRateLimitsPayload(input);
+  if (hasRateLimitsData(payload)) {
+    rateLimitsSnapshot = {
+      payload,
+      cachedAt: Math.floor(Date.now() / 1000),
+    };
+  }
+  return {
+    ...payload,
+    stale: false,
+    cachedAt: rateLimitsSnapshot ? rateLimitsSnapshot.cachedAt : null,
+  };
+}
+
+function getRateLimitsSnapshotPayload() {
+  if (!rateLimitsSnapshot || !rateLimitsSnapshot.payload) return null;
+  return {
+    ...cloneRateLimitsPayload(rateLimitsSnapshot.payload),
+    stale: true,
+    cachedAt:
+      Number.isFinite(Number(rateLimitsSnapshot.cachedAt)) &&
+      Number(rateLimitsSnapshot.cachedAt) > 0
+        ? Math.floor(Number(rateLimitsSnapshot.cachedAt))
+        : null,
+  };
+}
+
+function resetRateLimitsSnapshotForTest() {
+  rateLimitsSnapshot = null;
+}
+
 function toInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -2985,4 +3114,13 @@ async function bootstrap() {
 
 module.exports = {
   bootstrapBridge: bootstrap,
+  _test: {
+    normalizeRateLimitsResponse,
+    rememberRateLimitsSnapshot,
+    getRateLimitsSnapshotPayload,
+    hasRateLimitsData,
+    resetRateLimitsSnapshotForTest,
+    rewriteMarkdownLocalImageRefs,
+    normalizeMarkdownLocalImagePath,
+  },
 };

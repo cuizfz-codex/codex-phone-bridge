@@ -1168,6 +1168,11 @@ select:focus-visible {
   background: color-mix(in srgb, var(--surface) 88%, white 12%);
 }
 
+.msg.assistant.md-message {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, white 6%), color-mix(in srgb, var(--surface) 88%, white 12%));
+}
+
 .msg-role {
   font-size: 0.68rem;
   font-weight: 800;
@@ -1198,6 +1203,208 @@ select:focus-visible {
   word-break: break-word;
   line-height: 1.5;
   font-size: 0.95rem;
+}
+
+.md-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.md-content > * {
+  margin: 0;
+}
+
+.md-content p {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  color: var(--thread-title-active);
+  font-weight: 880;
+  line-height: 1.25;
+}
+
+.md-content h1 {
+  font-size: 1.28rem;
+}
+
+.md-content h2 {
+  font-size: 1.15rem;
+}
+
+.md-content h3 {
+  font-size: 1.04rem;
+}
+
+.md-content ul,
+.md-content ol {
+  margin: 0;
+  padding-left: 1.35em;
+  display: grid;
+  gap: 6px;
+}
+
+.md-content li {
+  word-break: break-word;
+}
+
+.md-content blockquote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--brand) 70%, var(--brand-2));
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: color-mix(in srgb, var(--text) 86%, var(--muted));
+}
+
+.md-content hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.md-content a {
+  color: var(--thread-title-active);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.md-content a:hover,
+.md-content a:focus-visible {
+  text-decoration: underline;
+}
+
+.md-file-ref {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 28rem);
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--line));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--brand) 10%, var(--surface)), color-mix(in srgb, var(--brand-2) 8%, var(--surface)));
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+.md-file-ref-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 70%, white 18%);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.md-file-ref-body {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.md-file-ref-name {
+  min-width: 0;
+  color: var(--thread-title-active);
+  font-weight: 820;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.md-file-ref-dir {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.md-content :not(pre) > code {
+  padding: 0.1em 0.4em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--details-bg) 88%, white 12%);
+  font-size: 0.88em;
+}
+
+.md-code-block {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--details-bg) 94%, var(--surface) 6%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+}
+
+.md-code-head {
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.md-code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  white-space: pre;
+  font-size: 0.77rem;
+  line-height: 1.55;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, white 8%);
+}
+
+.md-table-wrap table {
+  width: 100%;
+  min-width: 320px;
+  border-collapse: collapse;
+}
+
+.md-table-wrap th,
+.md-table-wrap td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+}
+
+.md-table-wrap th {
+  color: var(--thread-title-active);
+  font-size: 0.8rem;
+  font-weight: 850;
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+
+.md-table-wrap tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .details {
@@ -1781,6 +1988,27 @@ dialog::backdrop {
   .quota-widget {
     min-width: 112px;
     padding: 5px 6px;
+  }
+
+  .md-file-ref {
+    width: 100%;
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .md-file-ref-badge {
+    min-width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    font-size: 0.64rem;
+  }
+
+  .md-file-ref-name {
+    font-size: 0.96rem;
+  }
+
+  .md-file-ref-dir {
+    font-size: 0.7rem;
   }
 
   .quota-row {

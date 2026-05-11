@@ -614,6 +614,8 @@ const state = {
     rateLimits: null,
     pollTimer: null,
     lastError: "",
+    stale: false,
+    cachedAt: null,
   },
   modelChoice: {
     model: MODEL_FLOAT_MODEL,
@@ -1376,12 +1378,18 @@ async function loadRateLimits(options = {}) {
     const data = await apiFetchJson("/api/v2/rate-limits");
     state.quota.rateLimits = normalizeRateLimitsPayload(data || {});
     state.quota.lastError = "";
+    state.quota.stale = Boolean(data && data.stale);
+    state.quota.cachedAt =
+      Number.isFinite(Number(data && data.cachedAt)) && Number(data.cachedAt) > 0
+        ? Math.floor(Number(data.cachedAt))
+        : null;
     renderQuotaUsage();
   } catch (error) {
+    const hadPreviousData = Boolean(state.quota.rateLimits);
     state.quota.lastError = asMessage(error);
-    state.quota.rateLimits = null;
+    state.quota.stale = hadPreviousData ? state.quota.stale : false;
     renderQuotaUsage();
-    if (!silent) {
+    if (!silent && !hadPreviousData) {
       setStatusKey("status.readQuotaFailed", { error: state.quota.lastError });
     }
   }
@@ -3837,10 +3845,10 @@ function renderThreadItem(item) {
     const contentList = Array.isArray(item.content) ? item.content : [];
     for (const c of contentList) {
       if (c.type === "text") {
-        const p = document.createElement("p");
-        p.className = "text";
-        p.textContent = c.text || "";
-        box.append(p);
+        const content = document.createElement("div");
+        content.className = "md-content";
+        appendMarkdownContent(content, c.text || "");
+        box.append(content);
       } else if (c.type === "image") {
         box.append(renderImage(c.url, "image"));
       } else if (c.type === "localImage" || c.type === "local_image") {
@@ -3852,15 +3860,15 @@ function renderThreadItem(item) {
 
   if (item.type === "agentMessage") {
     const box = document.createElement("article");
-    box.className = "item msg assistant";
+    box.className = "item msg assistant md-message";
     const role = document.createElement("div");
     role.className = "msg-role";
     role.textContent = "Codex";
     box.append(role);
-    const p = document.createElement("p");
-    p.className = "text";
-    p.textContent = item.text || "";
-    box.append(p);
+    const content = document.createElement("div");
+    content.className = "md-content";
+    appendMarkdownContent(content, item.text || "");
+    box.append(content);
     return box;
   }
 
@@ -3935,6 +3943,397 @@ function renderThreadItem(item) {
   pre.textContent = JSON.stringify(item, null, 2);
   fallback.append(summary, pre);
   return fallback;
+}
+
+function appendMarkdownContent(container, input) {
+  const text = String(input || "").replace(/\r\n?/g, "\n");
+  if (!text.trim()) {
+    const p = document.createElement("p");
+    p.className = "text";
+    p.textContent = "";
+    container.append(p);
+    return;
+  }
+  renderMarkdownBlocks(container, text);
+}
+
+function renderMarkdownBlocks(container, text) {
+  const lines = String(text || "").split("\n");
+  const paragraph = [];
+  let index = 0;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const block = document.createElement("p");
+    appendInlineMarkdown(block, paragraph.join(" ").trim());
+    container.append(block);
+    paragraph.length = 0;
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      index += 1;
+      continue;
+    }
+
+    const imageMatch = line.match(/^\s*!\[([^\]\n]*)\]\(([^)\n]+)\)\s*$/);
+    if (imageMatch) {
+      flushParagraph();
+      container.append(renderImage(imageMatch[2].trim(), imageMatch[1].trim() || "image"));
+      index += 1;
+      continue;
+    }
+
+    const fenceMatch = line.match(/^```([\w.+-]*)\s*$/);
+    if (fenceMatch) {
+      flushParagraph();
+      const lang = String(fenceMatch[1] || "").trim().toLowerCase();
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index])) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      container.append(renderMarkdownCodeBlock(codeLines.join("\n"), lang));
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      flushParagraph();
+      const tableResult = renderMarkdownTable(lines, index);
+      container.append(tableResult.node);
+      index = tableResult.nextIndex;
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      const level = Math.max(1, Math.min(6, headingMatch[1].length));
+      const heading = document.createElement(`h${level}`);
+      appendInlineMarkdown(heading, headingMatch[2].trim());
+      container.append(heading);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      flushParagraph();
+      container.append(document.createElement("hr"));
+      index += 1;
+      continue;
+    }
+
+    if (/^\s{0,3}>\s?/.test(line)) {
+      flushParagraph();
+      const quoteLines = [];
+      while (index < lines.length && /^\s{0,3}>\s?/.test(lines[index])) {
+        quoteLines.push(lines[index].replace(/^\s{0,3}>\s?/, ""));
+        index += 1;
+      }
+      const quote = document.createElement("blockquote");
+      renderMarkdownBlocks(quote, quoteLines.join("\n"));
+      container.append(quote);
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
+      flushParagraph();
+      const listResult = renderMarkdownList(lines, index);
+      container.append(listResult.node);
+      index = listResult.nextIndex;
+      continue;
+    }
+
+    paragraph.push(trimmed);
+    index += 1;
+  }
+
+  flushParagraph();
+}
+
+function renderMarkdownCodeBlock(text, lang) {
+  const wrap = document.createElement("div");
+  wrap.className = "md-code-block";
+  if (lang) {
+    const head = document.createElement("div");
+    head.className = "md-code-head";
+    head.textContent = lang;
+    wrap.append(head);
+  }
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = text || "";
+  pre.append(code);
+  wrap.append(pre);
+  return wrap;
+}
+
+function renderMarkdownList(lines, startIndex) {
+  const ordered = /^\s*\d+\.\s+/.test(lines[startIndex]);
+  const list = document.createElement(ordered ? "ol" : "ul");
+  let index = startIndex;
+  while (index < lines.length) {
+    const line = lines[index];
+    const match = ordered
+      ? line.match(/^\s*\d+\.\s+(.+)$/)
+      : line.match(/^\s*[-*+]\s+(.+)$/);
+    if (!match) break;
+    const item = document.createElement("li");
+    appendInlineMarkdown(item, match[1].trim());
+    list.append(item);
+    index += 1;
+  }
+  return { node: list, nextIndex: index };
+}
+
+function isMarkdownTableStart(lines, index) {
+  if (!Array.isArray(lines) || index + 1 >= lines.length) return false;
+  const headerLine = String(lines[index] || "");
+  const separatorLine = String(lines[index + 1] || "");
+  if (!headerLine.includes("|")) return false;
+  return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(separatorLine);
+}
+
+function renderMarkdownTable(lines, startIndex) {
+  const headers = splitMarkdownTableRow(lines[startIndex]);
+  let index = startIndex + 2;
+  const rows = [];
+  while (index < lines.length) {
+    const line = String(lines[index] || "");
+    if (!line.trim() || !line.includes("|")) break;
+    rows.push(splitMarkdownTableRow(line));
+    index += 1;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "md-table-wrap";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const cellText of headers) {
+    const th = document.createElement("th");
+    appendInlineMarkdown(th, cellText);
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  table.append(thead);
+
+  if (rows.length > 0) {
+    const tbody = document.createElement("tbody");
+    for (const rowCells of rows) {
+      const tr = document.createElement("tr");
+      for (const cellText of rowCells) {
+        const td = document.createElement("td");
+        appendInlineMarkdown(td, cellText);
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    table.append(tbody);
+  }
+
+  wrap.append(table);
+  return { node: wrap, nextIndex: index };
+}
+
+function splitMarkdownTableRow(line) {
+  return String(line || "")
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function appendInlineMarkdown(container, input) {
+  container.append(buildInlineMarkdownFragment(input));
+}
+
+function buildInlineMarkdownFragment(input) {
+  const text = String(input || "");
+  const fragment = document.createDocumentFragment();
+  const tokenRegex =
+    /(\[([^\]\n]+)\]\(([^)\n]+)\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|~~([^~\n]+)~~|(https?:\/\/[^\s<]+))/g;
+  let lastIndex = 0;
+  let match = tokenRegex.exec(text);
+
+  while (match) {
+    if (match.index > lastIndex) {
+      fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    }
+    if (match[2] && match[3]) {
+      fragment.append(buildMarkdownLink(match[2], match[3]));
+    } else if (match[4]) {
+      const code = document.createElement("code");
+      code.textContent = match[4];
+      fragment.append(code);
+    } else if (match[5]) {
+      const strong = document.createElement("strong");
+      strong.textContent = match[5];
+      fragment.append(strong);
+    } else if (match[6]) {
+      const strike = document.createElement("s");
+      strike.textContent = match[6];
+      fragment.append(strike);
+    } else if (match[7]) {
+      fragment.append(buildMarkdownLink(match[7], match[7]));
+    }
+    lastIndex = tokenRegex.lastIndex;
+    match = tokenRegex.exec(text);
+  }
+
+  if (lastIndex < text.length) {
+    fragment.append(document.createTextNode(text.slice(lastIndex)));
+  }
+  return fragment;
+}
+
+function buildMarkdownLink(label, href) {
+  const fileRef = normalizeMarkdownFileRef(label, href);
+  if (fileRef) {
+    return buildMarkdownFileRef(fileRef);
+  }
+  const safeHref = normalizeMarkdownHref(href);
+  if (!safeHref) {
+    return document.createTextNode(label || href || "");
+  }
+  const link = document.createElement("a");
+  link.href = safeHref;
+  link.target = "_blank";
+  link.rel = "noreferrer noopener";
+  link.textContent = label || safeHref;
+  return link;
+}
+
+function normalizeMarkdownFileRef(label, href) {
+  const rawHref = String(href || "").trim();
+  if (!rawHref) return null;
+  const localPath = normalizeMarkdownLocalPath(rawHref);
+  if (!localPath) return null;
+  const display = String(label || "").trim() || localPath;
+  const parts = splitDisplayPath(display, localPath);
+  return {
+    fullPath: localPath,
+    display,
+    fileName: parts.fileName,
+    directory: parts.directory,
+    badge: inferFileBadge(parts.fileName),
+  };
+}
+
+function normalizeMarkdownLocalPath(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const unwrapped =
+    raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1).trim() : raw;
+  if (!unwrapped) return "";
+  if (
+    unwrapped.startsWith("http://") ||
+    unwrapped.startsWith("https://") ||
+    unwrapped.startsWith("mailto:")
+  ) {
+    return "";
+  }
+  if (unwrapped.startsWith("file://")) {
+    try {
+      const url = new URL(unwrapped);
+      return decodeURIComponent(url.pathname || "");
+    } catch (_error) {
+      return "";
+    }
+  }
+  return unwrapped.startsWith("/") ? unwrapped : "";
+}
+
+function splitDisplayPath(display, fallbackPath) {
+  const source = String(display || "").trim() || String(fallbackPath || "").trim();
+  const normalized = source.replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  if (slash < 0) {
+    const fallbackNormalized = stripDisplayPathLineSuffix(
+      String(fallbackPath || "").trim().replace(/\\/g, "/")
+    );
+    const fallbackSlash = fallbackNormalized.lastIndexOf("/");
+    if (fallbackSlash < 0) {
+      return {
+        fileName: source || fallbackNormalized || "file",
+        directory: "",
+      };
+    }
+    return {
+      fileName: fallbackNormalized.slice(fallbackSlash + 1) || source || "file",
+      directory: compressPathForDisplay(fallbackNormalized.slice(0, fallbackSlash)),
+    };
+  }
+  return {
+    fileName: stripDisplayPathLineSuffix(normalized.slice(slash + 1)) || "file",
+    directory: compressPathForDisplay(normalized.slice(0, slash)),
+  };
+}
+
+function stripDisplayPathLineSuffix(value) {
+  return String(value || "").replace(/:(\d+)$/, "");
+}
+
+function compressPathForDisplay(value) {
+  const raw = String(value || "").trim().replace(/\\/g, "/");
+  if (!raw) return "";
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.length <= 3) return raw;
+  return `${parts[0]}/.../${parts.slice(-2).join("/")}`;
+}
+
+function inferFileBadge(fileName) {
+  const match = String(fileName || "").match(/\.([a-z0-9]{1,6})$/i);
+  if (!match) return "FILE";
+  return String(match[1] || "FILE").toUpperCase().slice(0, 4);
+}
+
+function buildMarkdownFileRef(fileRef) {
+  const wrap = document.createElement("span");
+  wrap.className = "md-file-ref";
+  wrap.title = fileRef.fullPath;
+
+  const badge = document.createElement("span");
+  badge.className = "md-file-ref-badge";
+  badge.textContent = fileRef.badge;
+
+  const body = document.createElement("span");
+  body.className = "md-file-ref-body";
+
+  const name = document.createElement("span");
+  name.className = "md-file-ref-name";
+  name.textContent = fileRef.fileName;
+
+  body.append(name);
+  if (fileRef.directory) {
+    const dir = document.createElement("span");
+    dir.className = "md-file-ref-dir";
+    dir.textContent = fileRef.directory;
+    body.append(dir);
+  }
+
+  wrap.append(badge, body);
+  return wrap;
+}
+
+function normalizeMarkdownHref(value) {
+  const href = String(value || "").trim();
+  if (!href) return "";
+  if (
+    href.startsWith("http://") ||
+    href.startsWith("https://") ||
+    href.startsWith("mailto:")
+  ) {
+    return href;
+  }
+  return "";
 }
 
 function renderImage(src, alt) {
