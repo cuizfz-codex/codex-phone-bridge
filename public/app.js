@@ -301,6 +301,7 @@ const I18N = {
     "thread.turnsCount": "回合 {count}",
     "thread.turnHeader": "轮次 {id} · {status}",
     "thread.noContent": "该线程还没有对话内容。",
+    "thread.loadingContent": "正在加载线程内容…",
     "thread.execHint": " · (桌面端可能不显示 exec 来源线程)",
     "thread.archivedHint": " · 已归档",
     "thread.hiddenAgent": "已隐藏过程更新 {count} 条（桌面一致视图）",
@@ -509,6 +510,7 @@ const I18N = {
     "thread.turnHeader": "Turn {id} · {status}",
     "thread.titleWithId": "Thread {id}",
     "thread.noContent": "This thread has no messages yet.",
+    "thread.loadingContent": "Loading thread content...",
     "thread.execHint": " · (exec-source threads may be hidden on desktop)",
     "thread.archivedHint": " · archived",
     "thread.hiddenAgent": "{count} intermediate updates hidden (desktop-compatible view)",
@@ -668,6 +670,7 @@ const state = {
     lastTapAt: 0,
     startedOnBackdrop: false,
   },
+  imageLazyObserver: null,
 };
 
 init();
@@ -3004,6 +3007,22 @@ function handleRpcNotification(payload) {
     return;
   }
 
+  if (method === "thread/status/changed") {
+    const threadId = String(params.threadId || "");
+    if (!threadId) return;
+    if (isRunningStatus(getStatusType(params.status))) {
+      state.runningThreadIds.add(threadId);
+    } else {
+      markThreadRuntimeFinished(threadId);
+    }
+    renderThreadList();
+    if (threadId === String(state.selectedThreadId || "")) {
+      renderCurrentThread();
+      queueThreadRefresh(180);
+    }
+    return;
+  }
+
   if (
     method === "turn/started" ||
     method === "turn/completed" ||
@@ -3029,6 +3048,28 @@ function handleRpcNotification(payload) {
     if (params.threadId === state.selectedThreadId) {
       queueThreadRefresh(300);
     }
+    return;
+  }
+
+  if (
+    method === "thread/compacted" ||
+    method === "turn/plan/updated" ||
+    method === "model/rerouted"
+  ) {
+    if (params.threadId === state.selectedThreadId) {
+      queueThreadRefresh(220);
+    }
+    return;
+  }
+
+  if (
+    (method === "item/reasoning/summaryTextDelta" ||
+      method === "item/reasoning/summaryPartAdded" ||
+      method === "item/reasoning/textDelta") &&
+    state.displayMode === "detail" &&
+    params.threadId === state.selectedThreadId
+  ) {
+    queueThreadRefresh(420);
     return;
   }
 
@@ -3105,6 +3146,28 @@ async function loadThreads(options = {}) {
         threads.push(item);
       }
       threads.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+    }
+
+    if (
+      preserveSelection &&
+      state.selectedThreadId &&
+      !threads.some((item) => item && item.id === state.selectedThreadId)
+    ) {
+      try {
+        const selectedData = await apiFetchJson(
+          `/api/v2/threads/${encodeURIComponent(
+            state.selectedThreadId
+          )}?includeTurns=false`
+        );
+        const selectedThread = selectedData.thread || null;
+        if (selectedThread && selectedThread.id) {
+          selectedThread.archived = false;
+          threads.unshift(selectedThread);
+          threads.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+        }
+      } catch (_error) {
+        // Stale selections still fall through to the existing first-thread fallback below.
+      }
     }
 
     state.threads = threads;
@@ -3195,11 +3258,19 @@ async function selectThread(threadId) {
   state.liveDeltas.clear();
   state.forceScrollToBottom = true;
   state.chatScrollLocked = false;
+  state.loadingThread = true;
+  state.selectedThread = thread
+    ? {
+        ...thread,
+        turns: [],
+      }
+    : null;
   renderThreadList();
   renderContextUsage();
-  await loadCurrentThread(state.selectedThreadId, { silent: false });
-  await connectEventSource();
+  renderCurrentThread();
   closeSidebar();
+  await connectEventSource();
+  await loadCurrentThread(state.selectedThreadId, { silent: false });
 }
 
 async function loadCurrentThread(threadId, options = {}) {
@@ -3234,6 +3305,7 @@ async function loadCurrentThread(threadId, options = {}) {
       state.selectedThreadUsage = state.threadUsageById.get(String(threadId)) || null;
     }
     state.liveDeltas.clear();
+    state.loadingThread = false;
     renderCurrentThread();
     renderContextUsage();
     if (!silent) {
@@ -3674,6 +3746,7 @@ function renderCurrentThread() {
   const viewport = captureChatViewport();
   const forceBottom = Boolean(state.forceScrollToBottom);
   const shouldStickBottom = forceBottom || !state.chatScrollLocked;
+  resetThreadImageLazyLoader();
   elements.chat.innerHTML = "";
   if (!thread) {
     const emptyTitle = t("thread.selectPrompt");
@@ -3709,9 +3782,12 @@ function renderCurrentThread() {
   if (turns.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = t("thread.noContent");
+    empty.textContent = state.loadingThread
+      ? t("thread.loadingContent")
+      : t("thread.noContent");
     elements.chat.append(empty);
     restoreChatViewport(viewport, shouldStickBottom);
+    hydrateThreadImages();
     if (shouldStickBottom) {
       state.chatScrollLocked = false;
     }
@@ -3743,6 +3819,7 @@ function renderCurrentThread() {
 
   renderLiveDeltas({ shouldAutoScroll: shouldStickBottom });
   restoreChatViewport(viewport, shouldStickBottom);
+  hydrateThreadImages();
   if (shouldStickBottom) {
     state.chatScrollLocked = false;
   }
@@ -3877,13 +3954,73 @@ function renderImage(src, alt) {
   button.dataset.imageSrc = src;
   button.dataset.imageAlt = alt || "image";
   button.setAttribute("aria-label", t("image.openPreview"));
-  img.loading = "lazy";
   img.decoding = "async";
-  img.src = src;
+  img.dataset.src = src;
   img.alt = alt || "image";
   button.append(img);
   wrap.append(button);
   return wrap;
+}
+
+function resetThreadImageLazyLoader() {
+  if (state.imageLazyObserver) {
+    state.imageLazyObserver.disconnect();
+    state.imageLazyObserver = null;
+  }
+}
+
+function hydrateThreadImages() {
+  if (!elements.chat) return;
+  resetThreadImageLazyLoader();
+  const images = [
+    ...elements.chat.querySelectorAll(".image-thumb img[data-src]"),
+  ];
+  if (images.length === 0) return;
+  if (!("IntersectionObserver" in window)) {
+    images.forEach(loadDeferredThreadImage);
+    return;
+  }
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const img = entry.target;
+        observer.unobserve(img);
+        loadDeferredThreadImage(img);
+      }
+    },
+    {
+      root: elements.chat,
+      rootMargin: "900px 0px",
+      threshold: 0.01,
+    }
+  );
+  state.imageLazyObserver = observer;
+  for (const img of images) {
+    const thumb = img.closest(".image-thumb");
+    if (thumb && isElementNearScrollRoot(thumb, elements.chat, 900)) {
+      loadDeferredThreadImage(img);
+    } else {
+      observer.observe(img);
+    }
+  }
+}
+
+function loadDeferredThreadImage(img) {
+  if (!(img instanceof HTMLImageElement)) return;
+  const src = img.dataset.src || "";
+  if (!src || img.src === src) return;
+  img.loading = "eager";
+  img.src = src;
+  delete img.dataset.src;
+}
+
+function isElementNearScrollRoot(element, root, margin = 0) {
+  if (!element || !root) return true;
+  const elRect = element.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  const pad = Math.max(0, Number(margin) || 0);
+  return elRect.bottom >= rootRect.top - pad && elRect.top <= rootRect.bottom + pad;
 }
 
 function handleChatImageClick(event) {
@@ -4941,12 +5078,20 @@ function threadHasRunningSignal(thread) {
   return false;
 }
 
+function getStatusType(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.type) return String(value.type);
+  return "";
+}
+
 function isRunningStatus(value) {
   const status = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[_\s-]+/g, "");
   return (
+    status === "active" ||
     status === "inprogress" ||
     status === "running" ||
     status === "started" ||

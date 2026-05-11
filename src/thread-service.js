@@ -302,8 +302,11 @@ class ThreadSyncService extends EventEmitter {
   _decorateThreadRuntimeState(thread, desktopRunningThreadIds = new Set()) {
     if (!thread || !thread.id) return thread;
     const entry = this.watchedThreads.get(String(thread.id));
-    if (hasInProgressTurn(thread)) {
+    if (hasInProgressTurn(thread) || hasActiveThreadStatus(thread)) {
       this._clearTerminalRuntimeSuppression(thread.id);
+      if (entry) {
+        entry.inProgress = true;
+      }
       return {
         ...thread,
         inProgress: true,
@@ -426,13 +429,28 @@ class ThreadSyncService extends EventEmitter {
   }
 
   async readThread(threadId, includeTurns = true) {
-    const result = await this.rpc.request("thread/read", {
-      threadId: String(threadId),
-      includeTurns: Boolean(includeTurns),
-    });
+    const threadKey = String(threadId);
+    let result = null;
+    try {
+      result = await this.rpc.request("thread/read", {
+        threadId: threadKey,
+        includeTurns: Boolean(includeTurns),
+      });
+    } catch (error) {
+      if (!includeTurns || !isUnmaterializedThreadReadError(error)) {
+        throw error;
+      }
+      result = await this.rpc.request("thread/read", {
+        threadId: threadKey,
+        includeTurns: false,
+      });
+    }
     const thread = result && result.thread ? result.thread : null;
     if (!thread) {
       throw new Error("Thread not found");
+    }
+    if (!Array.isArray(thread.turns)) {
+      thread.turns = [];
     }
     const desktopRunningThreadIds = await this._getDesktopRuntimeThreadIds();
     return this._decorateThreadRuntimeState(thread, desktopRunningThreadIds);
@@ -597,14 +615,37 @@ class ThreadSyncService extends EventEmitter {
     const method = notification.method;
     const params = notification.params || {};
     const threadId = params.threadId || (params.thread && params.thread.id) || null;
-    if (method === "turn/started" && threadId) {
+    const threadStatusType = getThreadStatusType(params.status);
+    if (
+      (method === "turn/started" ||
+        (method === "thread/status/changed" && isRunningStatus(threadStatusType))) &&
+      threadId
+    ) {
       this._clearTerminalRuntimeSuppression(threadId);
+      const entry = this.watchedThreads.get(String(threadId));
+      if (entry) {
+        entry.inProgress = true;
+      }
+    }
+    if (
+      (method === "turn/completed" ||
+        method === "turn/interrupted" ||
+        (method === "thread/status/changed" &&
+          isTerminalThreadStatus(threadStatusType))) &&
+      threadId
+    ) {
+      const entry = this.watchedThreads.get(String(threadId));
+      if (entry) {
+        entry.inProgress = false;
+      }
     }
 
     if (
       method === "thread/started" ||
       method === "thread/name/updated" ||
-      method === "thread/tokenUsage/updated"
+      method === "thread/tokenUsage/updated" ||
+      method === "thread/status/changed" ||
+      method === "thread/compacted"
     ) {
       this.refreshThreadList("notification").catch((error) => {
         this.emit("error", error);
@@ -614,11 +655,16 @@ class ThreadSyncService extends EventEmitter {
     if (
       method === "turn/started" ||
       method === "turn/completed" ||
+      method === "turn/interrupted" ||
       method === "item/started" ||
       method === "item/completed" ||
       method === "item/agentMessage/delta" ||
       method === "item/commandExecution/outputDelta" ||
-      method === "item/fileChange/outputDelta"
+      method === "item/fileChange/outputDelta" ||
+      method === "thread/status/changed" ||
+      method === "thread/compacted" ||
+      method === "turn/plan/updated" ||
+      method === "model/rerouted"
     ) {
       if (threadId) {
         this.triggerImmediateThreadRead(threadId);
@@ -708,6 +754,10 @@ function matchesThreadQuery(thread, query) {
 function hasInProgressTurn(thread) {
   if (!thread || !Array.isArray(thread.turns)) return false;
   return thread.turns.some((turn) => turn && isRunningStatus(turn.status));
+}
+
+function hasActiveThreadStatus(thread) {
+  return isRunningStatus(getThreadStatusType(thread && thread.status));
 }
 
 function hasAuthoritativeTerminalTurns(thread) {
@@ -870,6 +920,7 @@ function isRunningStatus(value) {
     .toLowerCase()
     .replace(/[_\s-]+/g, "");
   return (
+    status === "active" ||
     status === "inprogress" ||
     status === "running" ||
     status === "started" ||
@@ -893,6 +944,21 @@ function isTerminalStatus(value) {
   );
 }
 
+function getThreadStatusType(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.type) return String(value.type);
+  return "";
+}
+
+function isTerminalThreadStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "");
+  return status === "idle" || status === "systemerror" || status === "notloaded";
+}
+
 function threadSignature(thread) {
   if (!thread) return "";
   const turns = Array.isArray(thread.turns) ? thread.turns : [];
@@ -914,6 +980,15 @@ function isThreadNotFoundError(error) {
   const message =
     error && typeof error.message === "string" ? error.message : String(error || "");
   return /thread not found/i.test(message);
+}
+
+function isUnmaterializedThreadReadError(error) {
+  const message =
+    error && typeof error.message === "string" ? error.message : String(error || "");
+  return (
+    /not materialized yet/i.test(message) ||
+    /includeTurns is unavailable before first user message/i.test(message)
+  );
 }
 
 function compactObject(input) {
@@ -957,6 +1032,7 @@ module.exports = {
     hasAuthoritativeTerminalTurns,
     isRuntimeSessionTailActive,
     isTerminalStatus,
+    isUnmaterializedThreadReadError,
     parseCodexAppServerPids,
     parseRuntimeSessionFilesFromLsof,
     parseThreadIdFromSessionPath,

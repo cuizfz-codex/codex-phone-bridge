@@ -1689,15 +1689,28 @@ function normalizeRpcNotification(notification) {
   const map = {
     thread_started: "thread/started",
     thread_name_updated: "thread/name/updated",
+    thread_status_changed: "thread/status/changed",
     turn_started: "turn/started",
     task_started: "turn/started",
     turn_complete: "turn/completed",
     task_complete: "turn/completed",
+    turn_interrupted: "turn/interrupted",
+    task_interrupted: "turn/interrupted",
+    thread_compacted: "thread/compacted",
+    turn_plan_updated: "turn/plan/updated",
     item_started: "item/started",
     item_completed: "item/completed",
     agent_message_delta: "item/agentMessage/delta",
+    reasoning_summary_text_delta: "item/reasoning/summaryTextDelta",
+    reasoning_summary_part_added: "item/reasoning/summaryPartAdded",
+    reasoning_text_delta: "item/reasoning/textDelta",
     exec_command_output_delta: "item/commandExecution/outputDelta",
     patch_apply_output_delta: "item/fileChange/outputDelta",
+    model_rerouted: "model/rerouted",
+    deprecation_notice: "deprecationNotice",
+    guardian_warning: "guardianWarning",
+    config_warning: "configWarning",
+    warning: "warning",
     token_count: "thread/tokenUsage/updated",
   };
 
@@ -1713,17 +1726,55 @@ function normalizeRpcNotification(notification) {
     };
   }
 
+  const normalizedMethod = map[type] || `legacy/${type}`;
+  const normalizedParams = {
+    ...params,
+    threadId,
+    turnId,
+    itemId,
+    delta: msg.delta || params.delta || "",
+    item: msg.item || null,
+    msg,
+  };
+
+  if (normalizedMethod === "thread/status/changed") {
+    normalizedParams.status = msg.status || params.status || null;
+  } else if (normalizedMethod === "turn/plan/updated") {
+    normalizedParams.explanation =
+      msg.explanation ?? params.explanation ?? null;
+    normalizedParams.plan = Array.isArray(msg.plan)
+      ? msg.plan
+      : Array.isArray(params.plan)
+      ? params.plan
+      : [];
+  } else if (normalizedMethod === "model/rerouted") {
+    normalizedParams.fromModel =
+      msg.from_model || msg.fromModel || params.fromModel || null;
+    normalizedParams.toModel =
+      msg.to_model || msg.toModel || params.toModel || null;
+    normalizedParams.reason = msg.reason || params.reason || null;
+  } else if (
+    normalizedMethod === "item/reasoning/summaryTextDelta" ||
+    normalizedMethod === "item/reasoning/summaryPartAdded"
+  ) {
+    normalizedParams.summaryIndex =
+      msg.summary_index ?? msg.summaryIndex ?? params.summaryIndex ?? null;
+  } else if (normalizedMethod === "item/reasoning/textDelta") {
+    normalizedParams.contentIndex =
+      msg.content_index ?? msg.contentIndex ?? params.contentIndex ?? null;
+  } else if (
+    normalizedMethod === "deprecationNotice" ||
+    normalizedMethod === "guardianWarning" ||
+    normalizedMethod === "configWarning" ||
+    normalizedMethod === "warning"
+  ) {
+    normalizedParams.summary = msg.summary || params.summary || null;
+    normalizedParams.details = msg.details ?? params.details ?? null;
+  }
+
   return {
-    method: map[type] || `legacy/${type}`,
-    params: {
-      ...params,
-      threadId,
-      turnId,
-      itemId,
-      delta: msg.delta || params.delta || "",
-      item: msg.item || null,
-      msg,
-    },
+    method: normalizedMethod,
+    params: normalizedParams,
   };
 }
 
@@ -1760,6 +1811,17 @@ function compactNotificationForWeb(notification) {
       },
     };
   }
+  if (method === "thread/status/changed") {
+    return {
+      method,
+      params: {
+        threadId,
+        turnId,
+        itemId,
+        status: params.status || null,
+      },
+    };
+  }
   if (
     method === "turn/started" ||
     method === "turn/completed" ||
@@ -1769,7 +1831,13 @@ function compactNotificationForWeb(notification) {
     method === "item/commandExecution/outputDelta" ||
     method === "item/fileChange/outputDelta" ||
     method === "thread/started" ||
-    method === "thread/name/updated"
+    method === "thread/name/updated" ||
+    method === "thread/compacted" ||
+    method === "turn/plan/updated" ||
+    method === "model/rerouted" ||
+    method === "item/reasoning/summaryTextDelta" ||
+    method === "item/reasoning/summaryPartAdded" ||
+    method === "item/reasoning/textDelta"
   ) {
     return {
       method,

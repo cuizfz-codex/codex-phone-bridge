@@ -1230,13 +1230,16 @@ select:focus-visible {
 }
 
 .image-thumb {
-  display: block;
-  max-width: min(220px, 54vw);
+  display: grid;
+  place-items: center;
+  width: min(220px, 54vw);
+  min-height: 124px;
   max-height: 180px;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--image-line);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 88%, transparent), color-mix(in srgb, var(--panel) 82%, transparent));
   cursor: zoom-in;
   overflow: hidden;
 }
@@ -1247,8 +1250,7 @@ select:focus-visible {
   max-width: min(220px, 54vw);
   max-height: 180px;
   object-fit: contain;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--image-line);
+  border-radius: calc(var(--radius-sm) - 1px);
 }
 
 .msg.user .image-thumb {

@@ -54,6 +54,24 @@ test("ThreadSyncService decorates list items with desktop IPC running state", as
   assert.equal(result.data[0].inProgress, true);
 });
 
+test("ThreadSyncService decorates active thread status as running", async () => {
+  const rpc = {
+    async request(method, params) {
+      assert.equal(method, "thread/list");
+      assert.equal(params.useStateDbOnly, true);
+      return {
+        data: [{ id: "thread-1", status: { type: "active" }, turns: [] }],
+        nextCursor: null,
+      };
+    },
+  };
+  const service = new ThreadSyncService({ rpc, desktopRuntimeScan: false });
+
+  const result = await service.listThreads({ limit: 20, archived: false });
+  assert.equal(result.data[0].running, true);
+  assert.equal(result.data[0].inProgress, true);
+});
+
 test("ThreadSyncService lets authoritative terminal turns clear stale desktop running state", async () => {
   const rpc = {
     async request(method) {
@@ -86,6 +104,37 @@ test("ThreadSyncService lets authoritative terminal turns clear stale desktop ru
   assert.equal(thread.running, false);
   assert.equal(thread.inProgress, false);
   assert.equal(markedThreadId, "thread-1");
+});
+
+test("ThreadSyncService falls back when new empty thread is not materialized yet", async () => {
+  const calls = [];
+  const rpc = {
+    async request(method, params) {
+      calls.push({ method, params });
+      assert.equal(method, "thread/read");
+      if (params.includeTurns) {
+        throw new Error(
+          "RPC error (-32600): thread thread-1 is not materialized yet; includeTurns is unavailable before first user message"
+        );
+      }
+      return {
+        thread: {
+          id: "thread-1",
+          cwd: "/tmp/project",
+          status: { type: "idle" },
+        },
+      };
+    },
+  };
+  const service = new ThreadSyncService({ rpc, desktopRuntimeScan: false });
+
+  const thread = await service.readThread("thread-1", true);
+  assert.equal(thread.id, "thread-1");
+  assert.deepEqual(thread.turns, []);
+  assert.deepEqual(
+    calls.map((call) => call.params.includeTurns),
+    [true, false]
+  );
 });
 
 test("ThreadSyncService suppresses stale runtime scan after terminal read until next turn starts", async () => {
@@ -131,6 +180,39 @@ test("ThreadSyncService suppresses stale runtime scan after terminal read until 
   list = await service.listThreads({ limit: 20, archived: false });
   assert.equal(list.data[0].running, true);
   assert.equal(list.data[0].inProgress, true);
+});
+
+test("ThreadSyncService wakes watched threads on interruption and thread status changes", () => {
+  const service = new ThreadSyncService({
+    rpc: { request: async () => ({ data: [], nextCursor: null }) },
+    desktopRuntimeScan: false,
+  });
+  service.watchThread("thread-1", "watcher-1");
+  const entry = service.watchedThreads.get("thread-1");
+  assert.ok(entry);
+
+  entry.dueAt = Date.now() + 60000;
+  service.handleRpcNotification({
+    method: "turn/interrupted",
+    params: { threadId: "thread-1" },
+  });
+  assert.equal(entry.dueAt, 0);
+
+  entry.dueAt = Date.now() + 60000;
+  service.handleRpcNotification({
+    method: "thread/status/changed",
+    params: { threadId: "thread-1", status: { type: "active" } },
+  });
+  assert.equal(entry.dueAt, 0);
+  assert.equal(entry.inProgress, true);
+
+  entry.dueAt = Date.now() + 60000;
+  service.handleRpcNotification({
+    method: "thread/status/changed",
+    params: { threadId: "thread-1", status: { type: "idle" } },
+  });
+  assert.equal(entry.dueAt, 0);
+  assert.equal(entry.inProgress, false);
 });
 
 test("thread terminal helper requires turn data and terminal last status", () => {
